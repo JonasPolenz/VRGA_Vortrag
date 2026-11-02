@@ -1,0 +1,47 @@
+# Unity-generated folders (regenerated on open)
+/TatortVR/[Ll]ibrary/
+/TatortVR/[Tt]emp/
+/TatortVR/[Oo]bj/
+/TatortVR/[Ll]ogs/
+/TatortVR/[Uu]ser[Ss]ettings/
+/TatortVR/[Bb]uild/
+/TatortVR/[Bb]uilds/
+/TatortVR/[Mm]emoryCaptures/
+/TatortVR/[Rr]ecordings/
+/TatortVR/.utmp/
+/TatortVR/sysinfo.txt
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Machine-specific Claude Code / Unity MCP config (absolute local paths)
+.mcp.json
+
+# IDE files
+.vs/
+.idea/
+.vscode/
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Build output
+*.apk
+*.aab
+*.unitypackage
+*.app
+crashlytics-build.properties
+
+# OS
+.DS_Store
+Thumbs.db
