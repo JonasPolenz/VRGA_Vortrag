@@ -25,7 +25,7 @@ namespace TatortVR.EditorTools
     public static class XRProjectSetup
     {
         const string k_Root = "Assets/_TatortVR";
-        const string k_ScenePath = k_Root + "/Scenes/Tatort_Basis.unity";
+        internal const string k_ScenePath = k_Root + "/Scenes/Tatort_Basis.unity";
         const string k_RigPrefabName = "XR Origin (XR Rig)";
 
         [MenuItem("Tools/TatortVR/Projekt einrichten")]
@@ -226,7 +226,9 @@ namespace TatortVR.EditorTools
                 var rig = (GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(rigPath), scene);
                 rig.transform.SetPositionAndRotation(TatortEnvironmentBuilder.StartPosition, Quaternion.identity);
                 // Standing experience: use the real floor so eye height matches the user's height.
-                rig.GetComponent<Unity.XR.CoreUtils.XROrigin>().RequestedTrackingOriginMode = Unity.XR.CoreUtils.XROrigin.TrackingOriginMode.Floor;
+                var origin = rig.GetComponent<Unity.XR.CoreUtils.XROrigin>();
+                origin.RequestedTrackingOriginMode = Unity.XR.CoreUtils.XROrigin.TrackingOriginMode.Floor;
+                TatortInteractionBuilder.Build(scene, origin);
             }
 
             EditorSceneManager.SaveScene(scene, k_ScenePath);

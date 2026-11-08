@@ -26,7 +26,7 @@ namespace TatortVR.EditorTools
         const float k_WallHeight = 2.6f;
         const float k_WallThickness = 0.15f;
         const float k_DoorHeight = 2.1f;
-        const float k_FloorTop = 0.02f;
+        internal const float k_FloorTop = 0.02f;
         const float k_GroundHalfSize = 15f;
         const float k_CanvasScale = 0.002f; // 500 canvas pixels per metre
 
@@ -300,10 +300,12 @@ namespace TatortVR.EditorTools
             var helpPos = new Vector3(-1.5f, 1.45f, -0.6f);
             CreateBox("Staender Steuerung", boards, new Vector3(helpPos.x, 0.55f, helpPos.z), new Vector3(0.06f, 1.1f, 0.06f), s_Fence);
             CreateSign("Steuerung", boards, helpPos, FlatDirection(eye - helpPos), new Vector2(1.2f, 0.74f),
-                "Steuerung\n\nLinker Stick: gehen\nRechter Stick nach vorn: Teleport zielen,\nloslassen springt\nRechter Stick seitlich: drehen\nGrip: greifen", 26, alignment: TextAnchor.UpperLeft);
+                "Steuerung\n\nLinker Stick: gehen\nRechter Stick nach vorn: Teleport zielen, loslassen springt\n" +
+                "Rechter Stick seitlich: drehen\nGrip: greifen, Knopf drücken\nTrigger: Kamera auslösen\n" +
+                "Linke Hüfte: Beweisbeutel, rechte Hüfte: Kamera", 24, alignment: TextAnchor.UpperLeft);
         }
 
-        static Vector3 FlatDirection(Vector3 v)
+        internal static Vector3 FlatDirection(Vector3 v)
         {
             v.y = 0f;
             return v.normalized;
@@ -366,7 +368,7 @@ namespace TatortVR.EditorTools
             return group;
         }
 
-        static GameObject CreateBox(string name, Transform parent, Vector3 localPosition, Vector3 size, Material material, bool collider = true)
+        internal static GameObject CreateBox(string name, Transform parent, Vector3 localPosition, Vector3 size, Material material, bool collider = true, bool isStatic = true)
         {
             var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
             box.name = name;
@@ -376,7 +378,8 @@ namespace TatortVR.EditorTools
             box.GetComponent<Renderer>().sharedMaterial = material;
             if (!collider)
                 Object.DestroyImmediate(box.GetComponent<Collider>());
-            MarkStatic(box);
+            if (isStatic)
+                MarkStatic(box);
             return box;
         }
 
@@ -385,7 +388,7 @@ namespace TatortVR.EditorTools
             GameObjectUtility.SetStaticEditorFlags(go, StaticEditorFlags.BatchingStatic);
 
         // World-space UI panel with a text label. 'readFrom' points from the sign towards the reader.
-        static Text CreateSign(string name, Transform parent, Vector3 worldPosition, Vector3 readFrom, Vector2 sizeMetres, string text, int fontSize,
+        internal static Text CreateSign(string name, Transform parent, Vector3 worldPosition, Vector3 readFrom, Vector2 sizeMetres, string text, int fontSize,
             Color? background = null, Color? textColor = null, TextAnchor alignment = TextAnchor.MiddleCenter)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
@@ -424,31 +427,34 @@ namespace TatortVR.EditorTools
             rect.offsetMax = new Vector2(-padding, -padding);
         }
 
-        // XRI keeps interaction layer names in an asset; name layer 31 "Teleport" like the Starter Assets expect.
-        static int EnsureTeleportLayer()
+        // Name layer 31 "Teleport" like the Starter Assets expect.
+        static int EnsureTeleportLayer() => EnsureInteractionLayer(k_TeleportLayerIndex, "Teleport");
+
+        // XRI keeps interaction layer names in an asset; returns the layer's mask.
+        internal static int EnsureInteractionLayer(int index, string layerName)
         {
             var settingsPath = AssetDatabase.FindAssets("t:InteractionLayerSettings").Select(AssetDatabase.GUIDToAssetPath).FirstOrDefault();
             if (settingsPath != null)
             {
                 var so = new SerializedObject(AssetDatabase.LoadMainAssetAtPath(settingsPath));
                 var names = so.FindProperty("m_LayerNames");
-                if (names != null && names.arraySize > k_TeleportLayerIndex && names.GetArrayElementAtIndex(k_TeleportLayerIndex).stringValue != "Teleport")
+                if (names != null && names.arraySize > index && names.GetArrayElementAtIndex(index).stringValue != layerName)
                 {
-                    names.GetArrayElementAtIndex(k_TeleportLayerIndex).stringValue = "Teleport";
+                    names.GetArrayElementAtIndex(index).stringValue = layerName;
                     so.ApplyModifiedPropertiesWithoutUndo();
                     AssetDatabase.SaveAssets();
                 }
             }
 
-            return 1 << k_TeleportLayerIndex;
+            return 1 << index;
         }
 
-        static Material LoadMaterial(string name) => AssetDatabase.LoadAssetAtPath<Material>($"{k_Root}/Materials/{name}.mat");
+        internal static Material LoadMaterial(string name) => AssetDatabase.LoadAssetAtPath<Material>($"{k_Root}/Materials/{name}.mat");
 
         static Material CreateGridMaterial(string name, Color tint, Vector2 sizeMetres) =>
             CreateMaterial(name, tint, CreateGridTexture(), sizeMetres);
 
-        static Material CreateMaterial(string name, Color color, Texture2D texture = null, Vector2? tiling = null, Color? emission = null)
+        internal static Material CreateMaterial(string name, Color color, Texture2D texture = null, Vector2? tiling = null, Color? emission = null)
         {
             var path = $"{k_Root}/Materials/{name}.mat";
             var material = AssetDatabase.LoadAssetAtPath<Material>(path);
@@ -477,15 +483,17 @@ namespace TatortVR.EditorTools
             return material;
         }
 
-        static Material CreateGlassMaterial()
+        static Material CreateGlassMaterial() => CreateTransparentMaterial("Glas", new Color(0.7f, 0.85f, 0.95f, 0.25f), 0.9f);
+
+        internal static Material CreateTransparentMaterial(string name, Color color, float smoothness)
         {
-            var material = CreateMaterial("Glas", new Color(0.7f, 0.85f, 0.95f, 0.25f));
+            var material = CreateMaterial(name, color);
             material.SetFloat("_Surface", 1f);
             material.SetFloat("_Blend", 0f);
             material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
             material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
             material.SetFloat("_ZWrite", 0f);
-            material.SetFloat("_Smoothness", 0.9f);
+            material.SetFloat("_Smoothness", smoothness);
             material.SetOverrideTag("RenderType", "Transparent");
             material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             material.renderQueue = (int)RenderQueue.Transparent;
