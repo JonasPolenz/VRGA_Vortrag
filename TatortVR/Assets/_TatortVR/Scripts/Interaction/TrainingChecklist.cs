@@ -47,8 +47,8 @@ namespace TatortVR
             Line(text, $"{Box(Done(p.DepositedCount, total))} Beutel in die Asservatenkiste legen ({p.DepositedCount}/{total})");
             Line(text, "");
             Line(text, p.IsComplete
-                ? $"Abgeschlossen in {TrainingProgress.FormatTime(p.CompletionTime)}, Fehler: {p.MistakeCount}"
-                : $"Fehler bisher: {p.MistakeCount}");
+                ? $"Abgeschlossen in {TrainingProgress.FormatTime(p.CompletionTime)}: {p.Score}/{p.MaxScore} Punkte, {p.MistakeCount} Fehler"
+                : $"Punkte: {p.Score}/{p.MaxScore}   Fehler: {p.MistakeCount}   Schüsse: {p.ShotsFired}");
             foreach (var entry in p.Log.Skip(Mathf.Max(0, p.Log.Count - m_LogLines)))
                 Line(text, $"{TrainingProgress.FormatTime(entry.Time)}  {entry.Text}");
             m_Text.text = text.ToString().TrimEnd('\n');

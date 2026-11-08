@@ -27,6 +27,7 @@ namespace TatortVR.EditorTools
         const int k_DefaultLayers = 1;
         const int k_BagLayerIndex = 1;
         const int k_CameraLayerIndex = 2;
+        const int k_PistolLayerIndex = 3;
         const float k_TableHeight = 0.8f;
         const string k_OverlayMaterialPath = "Assets/_TatortVR/Materials/UI_ImmerSichtbar.mat";
 
@@ -64,6 +65,7 @@ namespace TatortVR.EditorTools
         {
             var bagLayers = EnsureInteractionLayer(k_BagLayerIndex, "Beweisbeutel");
             var cameraLayers = EnsureInteractionLayer(k_CameraLayerIndex, "Kamera");
+            var pistolLayers = EnsureInteractionLayer(k_PistolLayerIndex, "Waffe");
             var head = origin.Camera.transform;
 
             var root = new GameObject(RootName);
@@ -73,12 +75,14 @@ namespace TatortVR.EditorTools
             progress.transform.SetParent(root.transform, false);
             var messages = BuildMessageDisplay(root.transform, head);
 
-            BuildBody(origin, head, bagLayers, cameraLayers, out var bagHolster, out var cameraHolster);
+            BuildBody(origin, head, bagLayers, cameraLayers, pistolLayers, out var bagHolster, out var cameraHolster, out var pistolHolster);
             var checklist = BuildEquipment(root.transform, progress, cameraHolster, cameraLayers);
             BuildEvidenceBags(root.transform, bagHolster, bagLayers);
+            BuildPistol(root.transform, pistolHolster, pistolLayers);
             var evidenceCount = BuildEvidence(root.transform);
             BuildEvidenceBox(root.transform);
             BuildCrimeSceneZone(root.transform);
+            BuildStepGuard(root.transform, origin, head);
             BuildHandZone(FindChild(origin.transform, "Left Controller"));
             BuildHandZone(FindChild(origin.transform, "Right Controller"));
 
@@ -190,7 +194,7 @@ namespace TatortVR.EditorTools
             return checklist;
         }
 
-        // Evidence camera; when let go it is stowed at the right hip.
+        // Evidence camera; when let go it is stowed on the strap in front of the belly.
         static void BuildCamera(Transform parent, Vector3 position, Quaternion rotation, XRSocketInteractor holster, int cameraLayers)
         {
             var cameraObject = CreateGrabbable("Kamera", parent, position, rotation, 0.4f, k_DefaultLayers | cameraLayers);
@@ -240,6 +244,70 @@ namespace TatortVR.EditorTools
             SetHolster(cameraObject.AddComponent<HolsterReturn>(), holster);
         }
 
+        // Service pistol, barrel along +Z. Starts in the right hip holster and returns there when let go, which reloads it.
+        static void BuildPistol(Transform root, XRSocketInteractor holster, int pistolLayers)
+        {
+            var pistol = CreateGrabbable("Pistole", root, holster.transform.position, holster.transform.rotation, 0.8f, k_DefaultLayers | pistolLayers);
+            var grab = pistol.GetComponent<XRGrabInteractable>();
+            // Held by the grip in a fixed pose so the barrel points forward from the hand.
+            grab.useDynamicAttach = false;
+            var handle = new GameObject("Griff").transform;
+            handle.SetParent(pistol.transform, false);
+            handle.localPosition = new Vector3(0f, -0.07f, -0.06f);
+            grab.attachTransform = handle;
+
+            var metal = CreateMaterial("Pistole", new Color(0.13f, 0.13f, 0.14f));
+            metal.SetFloat("_Metallic", 0.6f);
+            metal.SetFloat("_Smoothness", 0.45f);
+            var polymer = CreateMaterial("Pistole_Griff", new Color(0.07f, 0.07f, 0.07f));
+            CreateBox("Schlitten", pistol.transform, Vector3.zero, new Vector3(0.03f, 0.032f, 0.19f), metal, isStatic: false);
+            CreateBox("Rahmen", pistol.transform, new Vector3(0f, -0.026f, -0.005f), new Vector3(0.028f, 0.02f, 0.16f), polymer, isStatic: false);
+            var grip = CreateBox("Griffstueck", pistol.transform, new Vector3(0f, -0.08f, -0.06f), new Vector3(0.03f, 0.11f, 0.048f), polymer, isStatic: false);
+            grip.transform.localRotation = Quaternion.Euler(15f, 0f, 0f);
+            CreateBox("Abzugsbuegel", pistol.transform, new Vector3(0f, -0.052f, 0.005f), new Vector3(0.008f, 0.006f, 0.05f), polymer, collider: false, isStatic: false);
+            CreateBox("Abzug", pistol.transform, new Vector3(0f, -0.045f, -0.005f), new Vector3(0.006f, 0.02f, 0.006f), metal, collider: false, isStatic: false);
+
+            var muzzle = new GameObject("Muendung").transform;
+            muzzle.SetParent(pistol.transform, false);
+            muzzle.localPosition = new Vector3(0f, 0.004f, 0.1f);
+            var flash = CreateBox("Muendungsfeuer", pistol.transform, new Vector3(0f, 0.004f, 0.115f), new Vector3(0.025f, 0.025f, 0.03f),
+                CreateMaterial("Muendungsfeuer", new Color(1f, 0.8f, 0.3f), emission: new Color(1f, 0.7f, 0.2f) * 4f), collider: false, isStatic: false);
+            flash.SetActive(false);
+            var light = new GameObject("Muendungslicht").AddComponent<Light>();
+            light.transform.SetParent(pistol.transform, false);
+            light.transform.localPosition = new Vector3(0f, 0.004f, 0.13f);
+            light.type = LightType.Point;
+            light.range = 3f;
+            light.intensity = 3f;
+            light.color = new Color(1f, 0.75f, 0.4f);
+            light.shadows = LightShadows.None;
+            light.enabled = false;
+
+            // Round counter behind the rear sight, readable while aiming.
+            var ammo = CreateSign("Munition", pistol.transform, pistol.transform.TransformPoint(new Vector3(0f, 0.03f, -0.088f)),
+                pistol.transform.TransformDirection(Vector3.back), new Vector2(0.04f, 0.026f), "15", 11, new Color(0.05f, 0.05f, 0.05f, 0.9f), new Color(1f, 0.85f, 0.2f));
+
+            var so = new SerializedObject(pistol.AddComponent<Pistol>());
+            so.FindProperty("m_Muzzle").objectReferenceValue = muzzle;
+            so.FindProperty("m_MuzzleLight").objectReferenceValue = light;
+            so.FindProperty("m_MuzzleFlash").objectReferenceValue = flash;
+            so.FindProperty("m_AmmoDisplay").objectReferenceValue = ammo;
+            so.FindProperty("m_ImpactMaterial").objectReferenceValue = CreateMaterial("Einschuss", new Color(0.04f, 0.04f, 0.04f));
+            so.ApplyModifiedPropertiesWithoutUndo();
+            SetHolster(pistol.AddComponent<HolsterReturn>(), holster);
+            holster.startingSelectedInteractable = grab;
+        }
+
+        static void BuildStepGuard(Transform root, XROrigin origin, Transform head)
+        {
+            var guard = new GameObject("Trittschutz").AddComponent<EvidenceStepGuard>();
+            guard.transform.SetParent(root, false);
+            var so = new SerializedObject(guard);
+            so.FindProperty("m_Head").objectReferenceValue = head;
+            so.FindProperty("m_Floor").objectReferenceValue = origin.transform;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
         // Example evidence in the living room next to the markers. Long items lie along their X axis.
         static int BuildEvidence(Transform root)
         {
@@ -270,10 +338,10 @@ namespace TatortVR.EditorTools
             return group.childCount;
         }
 
-        // Body anchor on the rig: bag holster at the left hip, camera holster at the right hip
-        // and a chest zone for putting on the suit.
-        static void BuildBody(XROrigin origin, Transform head, int bagLayers, int cameraLayers,
-            out XRSocketInteractor bagHolster, out XRSocketInteractor cameraHolster)
+        // Body anchor on the rig: bag holster at the left hip, pistol holster at the right hip, camera on a
+        // strap in front of the belly and a chest zone for putting on the suit.
+        static void BuildBody(XROrigin origin, Transform head, int bagLayers, int cameraLayers, int pistolLayers,
+            out XRSocketInteractor bagHolster, out XRSocketInteractor cameraHolster, out XRSocketInteractor pistolHolster)
         {
             var body = new GameObject(k_BodyName);
             body.transform.SetParent(origin.transform, false);
@@ -281,7 +349,9 @@ namespace TatortVR.EditorTools
 
             // Turned sideways so the bag hangs flat against the leg.
             bagHolster = CreateHolster("Huefte links", body.transform, new Vector3(-0.2f, 0.9f, 0.05f), Quaternion.Euler(0f, 90f, 0f), 0.12f, bagLayers);
-            cameraHolster = CreateHolster("Huefte rechts", body.transform, new Vector3(0.2f, 0.9f, 0.05f), Quaternion.identity, 0.1f, cameraLayers);
+            // Barrel pointing down, grip up, like a belt holster.
+            pistolHolster = CreateHolster("Huefte rechts", body.transform, new Vector3(0.2f, 0.9f, 0.05f), Quaternion.Euler(90f, 0f, 0f), 0.1f, pistolLayers);
+            cameraHolster = CreateHolster("Brustgurt", body.transform, new Vector3(0f, 1.05f, 0.17f), Quaternion.identity, 0.1f, cameraLayers);
 
             var chest = new GameObject("Brust", typeof(CapsuleCollider), typeof(Rigidbody), typeof(WearZone));
             chest.transform.SetParent(body.transform, false);
@@ -298,7 +368,8 @@ namespace TatortVR.EditorTools
             so.FindProperty("m_Head").objectReferenceValue = head;
             so.FindProperty("m_Floor").objectReferenceValue = origin.transform;
             so.FindProperty("m_Hip").objectReferenceValue = bagHolster.transform;
-            so.FindProperty("m_RightHip").objectReferenceValue = cameraHolster.transform;
+            so.FindProperty("m_RightHip").objectReferenceValue = pistolHolster.transform;
+            so.FindProperty("m_Front").objectReferenceValue = cameraHolster.transform;
             so.FindProperty("m_Chest").objectReferenceValue = chest.transform;
             so.ApplyModifiedPropertiesWithoutUndo();
         }

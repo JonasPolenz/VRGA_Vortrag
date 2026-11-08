@@ -15,6 +15,10 @@ namespace TatortVR
         [Tooltip("Optional holster on the right hip, mirrored from the left one.")]
         [SerializeField] Transform m_RightHip;
         [SerializeField] Transform m_Chest;
+        [Tooltip("Optional mount in front of the belly, like a camera on a neck strap.")]
+        [SerializeField] Transform m_Front;
+        [SerializeField] float m_FrontBelowEyes = 0.55f;
+        [SerializeField] float m_FrontForward = 0.17f;
         [SerializeField] Vector3 m_HipOffset = new Vector3(-0.2f, 0f, 0.05f);
         [SerializeField, Range(0.3f, 0.8f)] float m_HipHeightRatio = 0.55f;
         [SerializeField] float m_ChestBelowEyes = 0.35f;
@@ -60,6 +64,8 @@ namespace TatortVR
                 m_RightHip.localPosition = Vector3.Scale(m_HipOffset, new Vector3(-1f, 1f, 1f)) + hipHeight;
             if (m_Chest != null)
                 m_Chest.localPosition = new Vector3(0f, eyeHeight - m_ChestBelowEyes, 0.05f);
+            if (m_Front != null)
+                m_Front.localPosition = new Vector3(0f, eyeHeight - m_FrontBelowEyes, m_FrontForward);
         }
 
         float HeadYaw()

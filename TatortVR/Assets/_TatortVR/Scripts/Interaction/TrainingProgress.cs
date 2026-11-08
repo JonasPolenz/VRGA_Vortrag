@@ -7,7 +7,7 @@ namespace TatortVR
 {
     /// <summary>
     /// Tracks the trainee's protective equipment, the evidence work and any mistakes, keeps a timed log
-    /// and announces every change.
+    /// and announces every change. The score starts at the maximum and every mistake deducts points.
     /// </summary>
     public class TrainingProgress : MonoBehaviour
     {
@@ -35,6 +35,7 @@ namespace TatortVR
         [SerializeField] Renderer[] m_HandRenderers;
         [SerializeField] Color m_GloveColor = new Color(0.2f, 0.42f, 0.95f);
         [SerializeField] int m_EvidenceTotal;
+        [SerializeField] int m_MaxScore = 100;
 
         static TrainingProgress s_Instance;
 
@@ -45,6 +46,7 @@ namespace TatortVR
         readonly List<LogEntry> m_Log = new List<LogEntry>();
         float m_StartTime;
         int m_LastBagNumber;
+        int m_Penalties;
 
         public static TrainingProgress Instance
         {
@@ -63,6 +65,9 @@ namespace TatortVR
         public int BaggedCount => m_Bagged.Count;
         public int DepositedCount => m_Deposited.Count;
         public int MistakeCount { get; private set; }
+        public int MaxScore => m_MaxScore;
+        public int Score => Mathf.Max(0, m_MaxScore - m_Penalties);
+        public int ShotsFired { get; private set; }
         public bool IsComplete { get; private set; }
         public float CompletionTime { get; private set; }
         public float ElapsedTime => Time.time - m_StartTime;
@@ -125,13 +130,20 @@ namespace TatortVR
                 return;
             IsComplete = true;
             CompletionTime = ElapsedTime;
-            Record($"Training abgeschlossen in {FormatTime(CompletionTime)} mit {MistakeCount} Fehler(n)");
+            Record($"Training abgeschlossen in {FormatTime(CompletionTime)}: {Score}/{m_MaxScore} Punkte");
         }
 
-        public void ReportMistake(string text)
+        public void ReportMistake(string text, int penalty)
         {
             MistakeCount++;
-            Record("Fehler: " + text, isMistake: true);
+            m_Penalties += penalty;
+            Record($"Fehler (-{penalty}): {text}", isMistake: true);
+        }
+
+        public void RegisterShot()
+        {
+            ShotsFired++;
+            Changed?.Invoke();
         }
 
         /// <summary>Shows a notice without writing it to the log, e.g. for hints.</summary>

@@ -12,6 +12,7 @@ namespace TatortVR
         [SerializeField] string m_AreaName = "Tatort";
         [Tooltip("Size of the area in local space, centred on this transform.")]
         [SerializeField] Vector3 m_Size = new Vector3(12f, 2.6f, 10f);
+        [SerializeField] int m_Penalty = 20;
 
         Transform m_Head;
         bool m_Entered;
@@ -44,7 +45,7 @@ namespace TatortVR
             if (!progress.IsWorn(TrainingProgress.Equipment.Handschuhe))
                 missing.Add("Handschuhe");
             if (missing.Count > 0)
-                progress.ReportMistake($"{m_AreaName} ohne {string.Join(" und ", missing)} betreten");
+                progress.ReportMistake($"{m_AreaName} ohne {string.Join(" und ", missing)} betreten", m_Penalty);
             else
                 progress.ShowMessage($"{m_AreaName} betreten");
         }

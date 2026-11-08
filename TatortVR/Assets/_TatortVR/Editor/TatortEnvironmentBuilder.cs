@@ -301,8 +301,8 @@ namespace TatortVR.EditorTools
             CreateBox("Staender Steuerung", boards, new Vector3(helpPos.x, 0.55f, helpPos.z), new Vector3(0.06f, 1.1f, 0.06f), s_Fence);
             CreateSign("Steuerung", boards, helpPos, FlatDirection(eye - helpPos), new Vector2(1.2f, 0.74f),
                 "Steuerung\n\nLinker Stick: gehen\nRechter Stick nach vorn: Teleport zielen, loslassen springt\n" +
-                "Rechter Stick seitlich: drehen\nGrip: greifen, Knopf drücken\nTrigger: Kamera auslösen\n" +
-                "Linke Hüfte: Beweisbeutel, rechte Hüfte: Kamera", 24, alignment: TextAnchor.UpperLeft);
+                "Rechter Stick seitlich: drehen\nGrip: greifen, Knopf drücken\nTrigger: Kamera auslösen / Pistole abfeuern\n" +
+                "Linke Hüfte: Beweisbeutel, rechte Hüfte: Pistole,\nvor dem Bauch: Kamera. Holster lädt die Pistole nach.", 22, alignment: TextAnchor.UpperLeft);
         }
 
         internal static Vector3 FlatDirection(Vector3 v)

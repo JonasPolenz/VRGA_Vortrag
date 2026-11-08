@@ -18,6 +18,8 @@ namespace TatortVR
         [SerializeField] float m_BaggedScale = 0.6f;
         [Tooltip("Rotation inside the bag; the default stands items whose long side is their X axis upright.")]
         [SerializeField] Vector3 m_BaggedRotation = new Vector3(0f, 0f, 90f);
+        [SerializeField] int m_NoGlovesPenalty = 10;
+        [SerializeField] int m_NotPhotographedPenalty = 10;
 
         static readonly List<EvidenceItem> s_All = new List<EvidenceItem>();
 
@@ -76,20 +78,23 @@ namespace TatortVR
             if (progress != null)
             {
                 var problems = new List<string>();
+                var penalty = 0;
                 if (!m_ReportedGloves && !progress.IsWorn(TrainingProgress.Equipment.Handschuhe))
                 {
                     m_ReportedGloves = true;
                     problems.Add("ohne Handschuhe angefasst");
+                    penalty += m_NoGlovesPenalty;
                 }
 
                 if (!m_ReportedPhoto && !IsDocumented && !HasBeenMoved)
                 {
                     m_ReportedPhoto = true;
                     problems.Add("vor dem Fotografieren bewegt");
+                    penalty += m_NotPhotographedPenalty;
                 }
 
                 if (problems.Count > 0)
-                    progress.ReportMistake($"{m_DisplayName} {string.Join(" und ", problems)}");
+                    progress.ReportMistake($"{m_DisplayName} {string.Join(" und ", problems)}", penalty);
             }
 
             HasBeenMoved = true;
