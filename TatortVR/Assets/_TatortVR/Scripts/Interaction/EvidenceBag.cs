@@ -19,6 +19,7 @@ namespace TatortVR
         [SerializeField] Text[] m_Labels = new Text[0];
         [SerializeField] Renderer m_Seal;
         [SerializeField] Color m_SealedColor = new Color(0.1f, 0.6f, 0.2f);
+        [SerializeField] int m_NoMarkerPenalty = 10;
 
         const float k_HintInterval = 3f;
 
@@ -77,6 +78,8 @@ namespace TatortVR
             item.PutInto(m_Contents, Vector3.zero);
             var progress = TrainingProgress.Instance;
             Number = progress != null ? progress.NextBagNumber() : 1;
+            if (progress != null && item.Marker == null)
+                progress.ReportMistake($"{item.DisplayName} ohne Spurenmarker gesichert", m_NoMarkerPenalty);
 
             // A sealed bag no longer fits the hip holster and stays where it is put down.
             m_Grab.interactionLayers = InteractionLayerMask.GetMask("Default");

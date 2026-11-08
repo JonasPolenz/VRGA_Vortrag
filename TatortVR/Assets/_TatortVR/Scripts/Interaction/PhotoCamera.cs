@@ -9,7 +9,8 @@ namespace TatortVR
 {
     /// <summary>
     /// Evidence camera. Pulling the trigger while holding it takes a photo: every unsecured
-    /// <see cref="EvidenceItem"/> inside the field of view and not hidden behind something counts as documented.
+    /// <see cref="EvidenceItem"/> and every currently lit <see cref="LatentTrace"/> inside the field of view
+    /// and not hidden behind something counts as documented.
     /// </summary>
     [RequireComponent(typeof(XRGrabInteractable))]
     public class PhotoCamera : MonoBehaviour
@@ -25,6 +26,7 @@ namespace TatortVR
 
         XRGrabInteractable m_Grab;
         readonly List<EvidenceItem> m_InView = new List<EvidenceItem>();
+        readonly List<LatentTrace> m_TracesInView = new List<LatentTrace>();
         int m_PhotoCount;
         float m_LastPhoto = float.NegativeInfinity;
         float m_FlashOffAt = -1f;
@@ -59,7 +61,7 @@ namespace TatortVR
             CollectEvidenceInView();
             var progress = TrainingProgress.Instance;
             if (progress != null)
-                progress.RegisterPhoto(m_PhotoCount, m_InView);
+                progress.RegisterPhoto(m_PhotoCount, m_InView, m_TracesInView);
             UpdateDisplay();
             return true;
         }
@@ -88,6 +90,21 @@ namespace TatortVR
                     && hit.collider.GetComponentInParent<EvidenceItem>() != item)
                     continue;
                 m_InView.Add(item);
+            }
+
+            m_TracesInView.Clear();
+            foreach (var trace in LatentTrace.All)
+            {
+                if (!trace.IsVisible)
+                    continue;
+                var toTrace = trace.transform.position - m_Lens.position;
+                var distance = toTrace.magnitude;
+                if (distance > m_Range || Vector3.Angle(m_Lens.forward, toTrace) > m_FieldOfView / 2f)
+                    continue;
+                // Traces sit on surfaces, so stop the ray just short of them.
+                if (Physics.Raycast(m_Lens.position, toTrace / distance, distance - 0.05f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                    continue;
+                m_TracesInView.Add(trace);
             }
         }
 

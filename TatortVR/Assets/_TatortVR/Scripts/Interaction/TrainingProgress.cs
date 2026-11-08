@@ -35,6 +35,7 @@ namespace TatortVR
         [SerializeField] Renderer[] m_HandRenderers;
         [SerializeField] Color m_GloveColor = new Color(0.2f, 0.42f, 0.95f);
         [SerializeField] int m_EvidenceTotal;
+        [SerializeField] int m_TraceTotal;
         [SerializeField] int m_MaxScore = 100;
 
         static TrainingProgress s_Instance;
@@ -43,10 +44,12 @@ namespace TatortVR
         readonly HashSet<EvidenceItem> m_Photographed = new HashSet<EvidenceItem>();
         readonly List<string> m_Bagged = new List<string>();
         readonly List<string> m_Deposited = new List<string>();
+        readonly HashSet<LatentTrace> m_TracesDocumented = new HashSet<LatentTrace>();
         readonly List<LogEntry> m_Log = new List<LogEntry>();
         float m_StartTime;
         int m_LastBagNumber;
         int m_Penalties;
+        bool m_HintedMissingTraces;
 
         public static TrainingProgress Instance
         {
@@ -61,6 +64,9 @@ namespace TatortVR
         public event Action Changed;
 
         public int EvidenceTotal => m_EvidenceTotal;
+        public int TraceTotal => m_TraceTotal;
+        public int MarkedCount => EvidenceItem.All.Count(item => item.Marker != null);
+        public int TracesDocumentedCount => m_TracesDocumented.Count;
         public int PhotographedCount => m_Photographed.Count;
         public int BaggedCount => m_Bagged.Count;
         public int DepositedCount => m_Deposited.Count;
@@ -93,25 +99,37 @@ namespace TatortVR
             Record(item == Equipment.Handschuhe ? "Handschuhe angezogen" : "Anzug angezogen");
         }
 
-        /// <summary>Evaluates a photo: evidence still lying where it was found counts as documented.</summary>
-        public void RegisterPhoto(int photoNumber, IReadOnlyList<EvidenceItem> inView)
+        /// <summary>
+        /// Evaluates a photo: evidence still lying where it was found and traces lit by the UV lamp count as documented.
+        /// </summary>
+        public void RegisterPhoto(int photoNumber, IReadOnlyList<EvidenceItem> inView, IReadOnlyList<LatentTrace> tracesInView)
         {
             var documented = inView.Where(item => item.TryDocument()).ToList();
             foreach (var item in documented)
                 m_Photographed.Add(item);
+            var documentedTraces = tracesInView.Where(trace => trace.TryDocument()).ToList();
+            foreach (var trace in documentedTraces)
+                m_TracesDocumented.Add(trace);
             var moved = inView.Where(item => item.HasBeenMoved).ToList();
 
+            var names = documented.Select(item => item.DisplayName).Concat(documentedTraces.Select(trace => trace.DisplayName)).ToList();
             string text;
-            if (documented.Count > 0)
-                text = $"Foto {photoNumber}: {Names(documented)} dokumentiert";
+            if (names.Count > 0)
+                text = $"Foto {photoNumber}: {string.Join(", ", names)} dokumentiert";
             else if (moved.Count > 0)
                 text = $"Foto {photoNumber}: {Names(moved)} nicht mehr am Fundort";
-            else if (inView.Count > 0)
-                text = $"Foto {photoNumber}: {Names(inView)} schon dokumentiert";
+            else if (inView.Count > 0 || tracesInView.Count > 0)
+                text = $"Foto {photoNumber}: schon dokumentiert";
             else
                 text = $"Foto {photoNumber}: kein Beweisstück im Bild";
             Record(text);
+            if (documentedTraces.Count > 0)
+                CheckComplete();
         }
+
+        public void RegisterMarker(int number, EvidenceItem item) => Record($"Spurenmarker {number} bei {item.DisplayName}");
+
+        public void RegisterTraceFound(LatentTrace trace) => Record($"UV-Spur entdeckt: {trace.DisplayName}");
 
         public int NextBagNumber() => ++m_LastBagNumber;
 
@@ -125,9 +143,25 @@ namespace TatortVR
         {
             m_Deposited.Add(itemName);
             Record($"Beutel Nr. {bagNumber} ({itemName}) in der Asservatenkiste");
+            CheckComplete();
+        }
 
+        // Done once every item is in the evidence box and every hidden trace has been photographed.
+        void CheckComplete()
+        {
             if (IsComplete || m_EvidenceTotal == 0 || m_Deposited.Count < m_EvidenceTotal)
                 return;
+            if (m_TracesDocumented.Count < m_TraceTotal)
+            {
+                if (!m_HintedMissingTraces)
+                {
+                    m_HintedMissingTraces = true;
+                    ShowMessage("Alle Beweisstücke abgegeben. Es fehlen noch verborgene Spuren (UV-Lampe)");
+                }
+
+                return;
+            }
+
             IsComplete = true;
             CompletionTime = ElapsedTime;
             Record($"Training abgeschlossen in {FormatTime(CompletionTime)}: {Score}/{m_MaxScore} Punkte");

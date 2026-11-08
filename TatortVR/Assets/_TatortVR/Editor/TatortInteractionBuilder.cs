@@ -28,6 +28,7 @@ namespace TatortVR.EditorTools
         const int k_BagLayerIndex = 1;
         const int k_CameraLayerIndex = 2;
         const int k_PistolLayerIndex = 3;
+        const int k_MarkerLayerIndex = 4;
         const float k_TableHeight = 0.8f;
         const string k_OverlayMaterialPath = "Assets/_TatortVR/Materials/UI_ImmerSichtbar.mat";
 
@@ -66,6 +67,7 @@ namespace TatortVR.EditorTools
             var bagLayers = EnsureInteractionLayer(k_BagLayerIndex, "Beweisbeutel");
             var cameraLayers = EnsureInteractionLayer(k_CameraLayerIndex, "Kamera");
             var pistolLayers = EnsureInteractionLayer(k_PistolLayerIndex, "Waffe");
+            var markerLayers = EnsureInteractionLayer(k_MarkerLayerIndex, "Marker");
             var head = origin.Camera.transform;
 
             var root = new GameObject(RootName);
@@ -75,14 +77,18 @@ namespace TatortVR.EditorTools
             progress.transform.SetParent(root.transform, false);
             var messages = BuildMessageDisplay(root.transform, head);
 
-            BuildBody(origin, head, bagLayers, cameraLayers, pistolLayers, out var bagHolster, out var cameraHolster, out var pistolHolster);
+            BuildBody(origin, head, bagLayers, cameraLayers, pistolLayers, markerLayers,
+                out var bagHolster, out var cameraHolster, out var pistolHolster, out var markerPouch);
             var checklist = BuildEquipment(root.transform, progress, cameraHolster, cameraLayers);
             BuildEvidenceBags(root.transform, bagHolster, bagLayers);
+            BuildMarkers(root.transform, markerPouch, markerLayers);
             BuildPistol(root.transform, pistolHolster, pistolLayers);
             var evidenceCount = BuildEvidence(root.transform);
+            var traceCount = BuildLatentTraces(root.transform);
             BuildEvidenceBox(root.transform);
             BuildCrimeSceneZone(root.transform);
             BuildStepGuard(root.transform, origin, head);
+            BuildBriefing(root.transform);
             BuildHandZone(FindChild(origin.transform, "Left Controller"));
             BuildHandZone(FindChild(origin.transform, "Right Controller"));
 
@@ -98,6 +104,7 @@ namespace TatortVR.EditorTools
             var so = new SerializedObject(progress);
             so.FindProperty("m_Messages").objectReferenceValue = messages;
             so.FindProperty("m_EvidenceTotal").intValue = evidenceCount;
+            so.FindProperty("m_TraceTotal").intValue = traceCount;
             SetArray(so.FindProperty("m_HandRenderers"), handRenderers);
             so.ApplyModifiedPropertiesWithoutUndo();
             checklist.Refresh();
@@ -166,6 +173,7 @@ namespace TatortVR.EditorTools
 
             // Lens towards the start so the camera lies ready to pick up.
             BuildCamera(equipment, top + new Vector3(0f, 0.046f, -0.02f), Quaternion.Euler(0f, 90f, 0f), cameraHolster, cameraLayers);
+            BuildUVLamp(equipment, top + new Vector3(0f, 0.026f, 0.5f), Quaternion.Euler(0f, 90f, 0f));
 
             var suit = CreateGrabbable("Schutzanzug", equipment, top + new Vector3(0f, 0.051f, 0.25f), Quaternion.identity, 0.4f);
             CreateBox("Stoff", suit.transform, Vector3.zero, new Vector3(0.32f, 0.1f, 0.28f), CreateMaterial("Schutzanzug", new Color(0.95f, 0.95f, 0.97f)), isStatic: false);
@@ -242,6 +250,168 @@ namespace TatortVR.EditorTools
             so.FindProperty("m_Display").objectReferenceValue = display;
             so.ApplyModifiedPropertiesWithoutUndo();
             SetHolster(cameraObject.AddComponent<HolsterReturn>(), holster);
+        }
+
+        // Forensic UV lamp, beam along +Z; the trigger switches it on and off.
+        static void BuildUVLamp(Transform parent, Vector3 position, Quaternion rotation)
+        {
+            var lamp = CreateGrabbable("UV-Lampe", parent, position, rotation, 0.3f);
+            var grab = lamp.GetComponent<XRGrabInteractable>();
+            grab.useDynamicAttach = false;
+            var handle = new GameObject("Griff").transform;
+            handle.SetParent(lamp.transform, false);
+            handle.localPosition = new Vector3(0f, 0f, -0.03f);
+            grab.attachTransform = handle;
+
+            var housing = CreateMaterial("UV_Lampe", new Color(0.12f, 0.12f, 0.2f));
+            var violet = new Color(0.55f, 0.3f, 1f);
+            CreateCylinder("Gehaeuse", lamp.transform, Vector3.zero, new Vector3(0.035f, 0.08f, 0.035f), housing, true);
+            CreateCylinder("Kopf", lamp.transform, new Vector3(0f, 0f, 0.095f), new Vector3(0.05f, 0.015f, 0.05f), housing, true);
+            CreateCylinder("Linse", lamp.transform, new Vector3(0f, 0f, 0.111f), new Vector3(0.042f, 0.002f, 0.042f), CreateMaterial("UV_Linse", new Color(0.15f, 0.08f, 0.3f)), false);
+            var glow = CreateCylinder("Leuchten", lamp.transform, new Vector3(0f, 0f, 0.113f), new Vector3(0.042f, 0.002f, 0.042f),
+                CreateMaterial("UV_Leuchten", violet, emission: violet * 4f), false);
+            glow.SetActive(false);
+
+            var lens = new GameObject("Lichtaustritt").transform;
+            lens.SetParent(lamp.transform, false);
+            lens.localPosition = new Vector3(0f, 0f, 0.116f);
+            var light = new GameObject("UV-Licht").AddComponent<Light>();
+            light.transform.SetParent(lens, false);
+            light.type = LightType.Spot;
+            light.spotAngle = 40f;
+            light.range = 3f;
+            light.intensity = 3f;
+            light.color = violet;
+            light.shadows = LightShadows.None;
+            light.enabled = false;
+
+            var so = new SerializedObject(lamp.AddComponent<UVLamp>());
+            so.FindProperty("m_Lens").objectReferenceValue = lens;
+            so.FindProperty("m_Light").objectReferenceValue = light;
+            so.FindProperty("m_Glow").objectReferenceValue = glow;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // Inactive template for the numbered evidence markers; the dispenser in the belt pouch copies it.
+        static void BuildMarkers(Transform root, XRSocketInteractor pouch, int markerLayers)
+        {
+            var marker = CreateGrabbable("Spurenmarker (Vorlage)", root, pouch.transform.position, pouch.transform.rotation, 0.05f, k_DefaultLayers | markerLayers);
+            // Markers are set down, not thrown; they stand upright where they are let go.
+            marker.GetComponent<XRGrabInteractable>().throwOnDetach = false;
+            CreateBox("Aufsteller", marker.transform, new Vector3(0f, 0.045f, 0f), new Vector3(0.07f, 0.09f, 0.05f), LoadMaterial("Spurenmarker"), isStatic: false);
+
+            var yellow = new Color(0.98f, 0.78f, 0.1f);
+            var front = CreateSign("Nummer vorne", marker.transform, marker.transform.TransformPoint(new Vector3(0f, 0.045f, -0.026f)),
+                marker.transform.TransformDirection(Vector3.back), new Vector2(0.06f, 0.07f), "0", 26, yellow, Color.black);
+            var back = CreateSign("Nummer hinten", marker.transform, marker.transform.TransformPoint(new Vector3(0f, 0.045f, 0.026f)),
+                marker.transform.TransformDirection(Vector3.forward), new Vector2(0.06f, 0.07f), "0", 26, yellow, Color.black);
+
+            var evidenceMarker = marker.AddComponent<EvidenceMarker>();
+            var so = new SerializedObject(evidenceMarker);
+            SetArray(so.FindProperty("m_Labels"), new Object[] { front, back });
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            so = new SerializedObject(pouch.gameObject.AddComponent<MarkerDispenser>());
+            so.FindProperty("m_Template").objectReferenceValue = evidenceMarker;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            marker.SetActive(false);
+        }
+
+        // Traces that only show under the UV lamp: fingerprints on the door frame, shoe prints across the
+        // living room floor and a body fluid trace on the sofa. Each root sits at the centre of its trace.
+        static int BuildLatentTraces(Transform root)
+        {
+            var group = new GameObject("Verborgene Spuren").transform;
+            group.SetParent(root, false);
+            var glowColor = new Color(0.35f, 1f, 0.65f);
+            var glow = CreateMaterial("UV_Spur", glowColor, emission: glowColor * 2.5f);
+
+            // Living room side of the hallway wall (x = 1.075), just north of the door, at handle height.
+            var prints = CreateTrace(group, "Fingerabdrücke", new Vector3(1.078f, 1.05f, 6.06f));
+            var facingRoom = Quaternion.LookRotation(Vector3.left);
+            var fingers = new[] { new Vector2(-0.03f, 0.008f), new Vector2(-0.01f, 0.02f), new Vector2(0.012f, 0.018f), new Vector2(0.032f, 0.004f) };
+            foreach (var finger in fingers)
+                AddTraceQuad(prints, facingRoom * new Vector3(finger.x, finger.y, 0f), facingRoom, new Vector2(0.016f, 0.022f), glow);
+
+            // Trail from the window towards the hallway, alternating left and right foot.
+            var shoes = CreateTrace(group, "Schuhabdrücke", new Vector3(3.5f, k_FloorTop + 0.0015f, 7.6f));
+            var walking = Quaternion.LookRotation(Vector3.down, Vector3.left);
+            for (var i = 0; i < 4; i++)
+                AddTraceQuad(shoes, new Vector3(0.75f - i * 0.5f, 0f, i % 2 == 0 ? 0.09f : -0.09f), walking, new Vector2(0.1f, 0.27f), glow);
+
+            // Sofa seat top is at 0.45 m.
+            var fluid = CreateTrace(group, "Biologische Spur", new Vector3(5.3f, 0.4515f, 6.35f));
+            var facingUp = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+            AddTraceQuad(fluid, Vector3.zero, facingUp, new Vector2(0.07f, 0.05f), glow);
+            AddTraceQuad(fluid, new Vector3(0.04f, 0f, 0.03f), facingUp * Quaternion.Euler(0f, 0f, 35f), new Vector2(0.05f, 0.035f), glow);
+            AddTraceQuad(fluid, new Vector3(-0.035f, 0f, -0.025f), facingUp * Quaternion.Euler(0f, 0f, -20f), new Vector2(0.03f, 0.025f), glow);
+
+            return group.childCount;
+        }
+
+        static Transform CreateTrace(Transform parent, string displayName, Vector3 position)
+        {
+            var trace = new GameObject(displayName).transform;
+            trace.SetParent(parent, false);
+            trace.position = position;
+            var so = new SerializedObject(trace.gameObject.AddComponent<LatentTrace>());
+            so.FindProperty("m_DisplayName").stringValue = displayName;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return trace;
+        }
+
+        // Quads face their local -Z, so the rotation's forward points into the surface.
+        static void AddTraceQuad(Transform trace, Vector3 localPosition, Quaternion worldRotation, Vector2 size, Material material)
+        {
+            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            quad.name = "Abdruck";
+            Object.DestroyImmediate(quad.GetComponent<Collider>());
+            quad.transform.SetParent(trace, false);
+            quad.transform.localPosition = localPosition;
+            quad.transform.rotation = worldRotation;
+            quad.transform.localScale = new Vector3(size.x, size.y, 1f);
+            var quadRenderer = quad.GetComponent<Renderer>();
+            quadRenderer.sharedMaterial = material;
+            quadRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+
+        static GameObject CreateCylinder(string name, Transform parent, Vector3 localPosition, Vector3 scale, Material material, bool collider)
+        {
+            var cylinder = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            cylinder.name = name;
+            cylinder.transform.SetParent(parent, false);
+            cylinder.transform.localPosition = localPosition;
+            // The primitive's axis is Y; lie it along Z.
+            cylinder.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            cylinder.transform.localScale = scale;
+            cylinder.GetComponent<Renderer>().sharedMaterial = material;
+            if (!collider)
+                Object.DestroyImmediate(cylinder.GetComponent<Collider>());
+            return cylinder;
+        }
+
+        // Case briefing to the right of the start.
+        static void BuildBriefing(Transform root)
+        {
+            var briefing = new GameObject("Einsatzauftrag").transform;
+            briefing.SetParent(root, false);
+            var position = new Vector3(1.7f, 1.5f, -2.5f);
+            var readFrom = FlatDirection(StartPosition + Vector3.up * 1.5f - position);
+            CreateBox("Staender Einsatz", briefing, new Vector3(position.x, 0.5f, position.z), new Vector3(0.06f, 1f, 0.06f), LoadMaterial("Zaun"));
+            CreateSign("Titel Einsatz", briefing, position + Vector3.up * 0.58f, readFrom, new Vector2(1.3f, 0.12f), "Einsatzauftrag", 44);
+            CreateSign("Einsatz", briefing, position, readFrom, new Vector2(1.3f, 1f),
+                "Lage: Notruf um 22:47 Uhr. In der Erdgeschosswohnung Musterweg 7 wurde ein Bewohner verletzt aufgefunden " +
+                "und ins Krankenhaus gebracht. Der Tatverdächtige ist flüchtig.\n\n" +
+                "Auftrag: Tatort sichern, Spuren dokumentieren, Beweismittel sichern.\n\n" +
+                "Ausrüstung (Tisch links): Schutzanzug, Handschuhe, Kamera, UV-Lampe.\n" +
+                "Am Körper: Beweisbeutel (linke Hüfte), Spurenmarker (Gürtel vorne links), Dienstpistole (rechte Hüfte), Kamera (Brustgurt).\n\n" +
+                "Vorgehen:\n" +
+                "1. Schutzanzug und Handschuhe anlegen\n" +
+                "2. Spurenmarker neben jedes Beweisstück stellen\n" +
+                "3. Beweisstücke am Fundort fotografieren\n" +
+                "4. Einzeln eintüten und in die Asservatenkiste legen\n" +
+                "5. Mit der UV-Lampe verborgene Spuren suchen und fotografieren\n\n" +
+                "Nicht auf Beweisstücke treten. Fehler kosten Punkte.", 19, alignment: TextAnchor.UpperLeft);
         }
 
         // Service pistol, barrel along +Z. Starts in the right hip holster and returns there when let go, which reloads it.
@@ -340,8 +510,8 @@ namespace TatortVR.EditorTools
 
         // Body anchor on the rig: bag holster at the left hip, pistol holster at the right hip, camera on a
         // strap in front of the belly and a chest zone for putting on the suit.
-        static void BuildBody(XROrigin origin, Transform head, int bagLayers, int cameraLayers, int pistolLayers,
-            out XRSocketInteractor bagHolster, out XRSocketInteractor cameraHolster, out XRSocketInteractor pistolHolster)
+        static void BuildBody(XROrigin origin, Transform head, int bagLayers, int cameraLayers, int pistolLayers, int markerLayers,
+            out XRSocketInteractor bagHolster, out XRSocketInteractor cameraHolster, out XRSocketInteractor pistolHolster, out XRSocketInteractor markerPouch)
         {
             var body = new GameObject(k_BodyName);
             body.transform.SetParent(origin.transform, false);
@@ -352,6 +522,7 @@ namespace TatortVR.EditorTools
             // Barrel pointing down, grip up, like a belt holster.
             pistolHolster = CreateHolster("Huefte rechts", body.transform, new Vector3(0.2f, 0.9f, 0.05f), Quaternion.Euler(90f, 0f, 0f), 0.1f, pistolLayers);
             cameraHolster = CreateHolster("Brustgurt", body.transform, new Vector3(0f, 1.05f, 0.17f), Quaternion.identity, 0.1f, cameraLayers);
+            markerPouch = CreateHolster("Markertasche", body.transform, new Vector3(-0.14f, 0.9f, 0.16f), Quaternion.identity, 0.07f, markerLayers);
 
             var chest = new GameObject("Brust", typeof(CapsuleCollider), typeof(Rigidbody), typeof(WearZone));
             chest.transform.SetParent(body.transform, false);
@@ -370,6 +541,7 @@ namespace TatortVR.EditorTools
             so.FindProperty("m_Hip").objectReferenceValue = bagHolster.transform;
             so.FindProperty("m_RightHip").objectReferenceValue = pistolHolster.transform;
             so.FindProperty("m_Front").objectReferenceValue = cameraHolster.transform;
+            so.FindProperty("m_Pouch").objectReferenceValue = markerPouch.transform;
             so.FindProperty("m_Chest").objectReferenceValue = chest.transform;
             so.ApplyModifiedPropertiesWithoutUndo();
         }

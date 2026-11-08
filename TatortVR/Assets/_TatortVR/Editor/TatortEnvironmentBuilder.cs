@@ -44,7 +44,7 @@ namespace TatortVR.EditorTools
             new Opening { Start = center - width / 2, End = center + width / 2, Bottom = bottom, Top = k_DoorHeight };
 
         // Materials are created once in Build() and shared by the helpers below.
-        static Material s_InnerWall, s_OuterWall, s_Glass, s_Furniture, s_LightFurniture, s_Fabric, s_Marker, s_Fence, s_Path, s_Tape, s_Stain;
+        static Material s_InnerWall, s_OuterWall, s_Glass, s_Furniture, s_LightFurniture, s_Fabric, s_Fence, s_Path, s_Tape, s_Stain;
         static int s_TeleportLayers;
 
         [MenuItem("Tools/TatortVR/Umgebung neu bauen")]
@@ -92,7 +92,8 @@ namespace TatortVR.EditorTools
             s_Furniture = CreateMaterial("Moebel", new Color(0.45f, 0.31f, 0.2f));
             s_LightFurniture = CreateMaterial("Moebel_Hell", new Color(0.82f, 0.82f, 0.8f));
             s_Fabric = CreateMaterial("Stoff", new Color(0.27f, 0.32f, 0.42f));
-            s_Marker = CreateMaterial("Spurenmarker", new Color(0.98f, 0.78f, 0.1f));
+            // Used by the evidence markers the trainee places.
+            CreateMaterial("Spurenmarker", new Color(0.98f, 0.78f, 0.1f));
             s_Fence = CreateMaterial("Zaun", new Color(0.3f, 0.3f, 0.32f));
             s_Path = CreateMaterial("Weg", new Color(0.42f, 0.42f, 0.42f));
             s_Tape = CreateMaterial("Absperrband", new Color(0.85f, 0.1f, 0.1f));
@@ -246,14 +247,7 @@ namespace TatortVR.EditorTools
 
             var stain = CreateBox("Fleck", living, new Vector3(2.7f, k_FloorTop + 0.002f, 5f), new Vector3(0.6f, 0.004f, 0.4f), s_Stain, collider: false);
             stain.transform.localRotation = Quaternion.Euler(0f, 25f, 0f);
-
-            var markers = Group("Spurenmarker", living);
-            var positions = new[] { new Vector3(2.3f, 0f, 4.95f), new Vector3(3.2f, 0f, 5.3f), new Vector3(2.2f, 0f, 3.9f), new Vector3(4.6f, 0f, 7.4f) };
-            for (var i = 0; i < positions.Length; i++)
-            {
-                var marker = CreateBox($"Spurenmarker {i + 1}", markers, positions[i] + new Vector3(0, k_FloorTop + 0.06f, 0), new Vector3(0.12f, 0.12f, 0.08f), s_Marker);
-                CreateSign("Nummer", marker.transform.parent, marker.transform.position + new Vector3(0, 0, -0.041f), Vector3.back, new Vector2(0.1f, 0.1f), (i + 1).ToString(), 40, new Color(0.98f, 0.78f, 0.1f), Color.black);
-            }
+            // Evidence markers are placed by the trainee (see TatortInteractionBuilder).
         }
 
         static void BuildTeleportAnchors(Transform root)

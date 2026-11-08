@@ -34,6 +34,7 @@ namespace TatortVR
         public bool IsDocumented { get; private set; }
         public bool HasBeenMoved { get; private set; }
         public bool IsBagged { get; private set; }
+        public EvidenceMarker Marker { get; internal set; }
         public bool IsHeldByHand => m_Grab.isSelected && !(m_Grab.firstInteractorSelecting is XRSocketInteractor);
 
         public Vector3 Center

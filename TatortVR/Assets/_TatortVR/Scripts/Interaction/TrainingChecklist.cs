@@ -42,9 +42,11 @@ namespace TatortVR
             var text = new StringBuilder("Ablauf\n");
             Line(text, $"{Box(p.IsWorn(TrainingProgress.Equipment.Anzug))} Schutzanzug anziehen (an den Körper halten)");
             Line(text, $"{Box(p.IsWorn(TrainingProgress.Equipment.Handschuhe))} Handschuhe anziehen (an die andere Hand)");
-            Line(text, $"{Box(Done(p.PhotographedCount, total))} Beweismittel am Fundort fotografieren ({p.PhotographedCount}/{total})");
-            Line(text, $"{Box(Done(p.BaggedCount, total))} Einzeln eintüten, Beutel an der linken Hüfte ({p.BaggedCount}/{total})");
+            Line(text, $"{Box(Done(p.MarkedCount, total))} Spurenmarker neben Beweisstücke stellen ({p.MarkedCount}/{total})");
+            Line(text, $"{Box(Done(p.PhotographedCount, total))} Beweisstücke am Fundort fotografieren ({p.PhotographedCount}/{total})");
+            Line(text, $"{Box(Done(p.BaggedCount, total))} Einzeln eintüten ({p.BaggedCount}/{total})");
             Line(text, $"{Box(Done(p.DepositedCount, total))} Beutel in die Asservatenkiste legen ({p.DepositedCount}/{total})");
+            Line(text, $"{Box(Done(p.TracesDocumentedCount, p.TraceTotal))} Verborgene Spuren mit UV-Lampe finden und fotografieren ({p.TracesDocumentedCount}/{p.TraceTotal})");
             Line(text, "");
             Line(text, p.IsComplete
                 ? $"Abgeschlossen in {TrainingProgress.FormatTime(p.CompletionTime)}: {p.Score}/{p.MaxScore} Punkte, {p.MistakeCount} Fehler"
