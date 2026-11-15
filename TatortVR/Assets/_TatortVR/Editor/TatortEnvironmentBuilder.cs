@@ -11,8 +11,10 @@ using UnityEngine.XR.Interaction.Toolkit.Locomotion.Teleportation;
 
 namespace TatortVR.EditorTools
 {
+    using Kit = TatortFurnitureKit;
+
     /// <summary>
-    /// Builds the grey-box training environment: a flat with five rooms, room signs, coloured floors,
+    /// Builds the training environment: a furnished flat with five rooms, room signs, coloured floors,
     /// a fenced yard with landmarks, a police cordon, teleport areas and anchors, and the controller status board.
     /// Everything lives under the "Umgebung" root so it can be rebuilt without touching the XR rig.
     /// </summary>
@@ -44,7 +46,8 @@ namespace TatortVR.EditorTools
             new Opening { Start = center - width / 2, End = center + width / 2, Bottom = bottom, Top = k_DoorHeight };
 
         // Materials are created once in Build() and shared by the helpers below.
-        static Material s_InnerWall, s_OuterWall, s_Glass, s_Furniture, s_LightFurniture, s_Fabric, s_Fence, s_Path, s_Tape, s_Stain;
+        static Material s_InnerWall, s_OuterWall, s_Glass, s_LightFurniture, s_Fabric, s_Fence, s_Path, s_Tape;
+        static Material s_Ceiling, s_Frame, s_Door, s_FrontDoor, s_Metal, s_Dark;
         static int s_TeleportLayers;
 
         [MenuItem("Tools/TatortVR/Umgebung neu bauen")]
@@ -89,7 +92,8 @@ namespace TatortVR.EditorTools
             s_InnerWall = CreateMaterial("Wand", new Color(0.88f, 0.86f, 0.82f));
             s_OuterWall = CreateMaterial("Wand_Aussen", new Color(0.66f, 0.6f, 0.54f));
             s_Glass = CreateGlassMaterial();
-            s_Furniture = CreateMaterial("Moebel", new Color(0.45f, 0.31f, 0.2f));
+            // Used by the tables and stands of the interactive part.
+            CreateMaterial("Moebel", new Color(0.45f, 0.31f, 0.2f));
             s_LightFurniture = CreateMaterial("Moebel_Hell", new Color(0.82f, 0.82f, 0.8f));
             s_Fabric = CreateMaterial("Stoff", new Color(0.27f, 0.32f, 0.42f));
             // Used by the evidence markers the trainee places.
@@ -97,7 +101,15 @@ namespace TatortVR.EditorTools
             s_Fence = CreateMaterial("Zaun", new Color(0.3f, 0.3f, 0.32f));
             s_Path = CreateMaterial("Weg", new Color(0.42f, 0.42f, 0.42f));
             s_Tape = CreateMaterial("Absperrband", new Color(0.85f, 0.1f, 0.1f));
-            s_Stain = CreateMaterial("Fleck", new Color(0.32f, 0.05f, 0.05f));
+            s_Ceiling = CreateMaterial("Decke", new Color(0.93f, 0.93f, 0.91f));
+            s_Frame = CreateMaterial("Rahmen", new Color(0.95f, 0.95f, 0.95f));
+            s_Door = CreateMaterial("Tuer", new Color(0.9f, 0.88f, 0.84f));
+            s_FrontDoor = CreateMaterial("Haustuer", new Color(0.22f, 0.27f, 0.3f));
+            s_Metal = CreateMaterial("Metall", new Color(0.7f, 0.7f, 0.72f));
+            s_Metal.SetFloat("_Metallic", 0.8f);
+            s_Metal.SetFloat("_Smoothness", 0.6f);
+            s_Dark = CreateMaterial("Dunkel", new Color(0.13f, 0.13f, 0.14f));
+            Kit.CreateMaterials();
         }
 
         static void BuildYard(Transform root)
@@ -209,46 +221,192 @@ namespace TatortVR.EditorTools
             CreateSign("Schild Schlafzimmer", signs, new Vector3(0f, 2.35f, 9 - offset), Vector3.back, new Vector2(1.2f, 0.3f), "Schlafzimmer", 80);
             CreateSign("Hausschild", signs, new Vector3(1.6f, 1.7f, 2 - offset), Vector3.back, new Vector2(0.9f, 0.4f), "Musterweg 7\nWohnung Erdgeschoss", 50);
 
+            // The ceiling keeps the teleport arc from going over the walls. It casts no shadow so the rooms stay lit.
+            var ceiling = CreateBox("Decke", flat, new Vector3(0f, k_WallHeight + 0.05f, 7f), new Vector3(12.15f, 0.1f, 10.15f), s_Ceiling);
+            ceiling.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+
+            BuildDoors(flat);
+
             var furniture = new GameObject("Einrichtung").transform;
             furniture.SetParent(flat, false);
             BuildLivingRoom(furniture);
+            BuildKitchen(furniture);
+            BuildBathroom(furniture);
+            BuildBedroom(furniture);
+            BuildHallway(furniture);
+        }
 
-            var kitchen = Group("Kueche", furniture);
-            CreateBox("Arbeitsplatte", kitchen, new Vector3(-5.6f, 0.45f, 3.8f), new Vector3(0.6f, 0.9f, 2.6f), s_LightFurniture);
-            CreateBox("Kuehlschrank", kitchen, new Vector3(-5.6f, 0.9f, 5.5f), new Vector3(0.65f, 1.8f, 0.65f), s_LightFurniture);
-            CreateBox("Kuechentisch", kitchen, new Vector3(-3f, 0.375f, 3.6f), new Vector3(1f, 0.75f, 0.8f), s_Furniture);
+        // Hinged doors: hinge position, direction of the closed leaf, side it swings open to, width.
+        // Only the living room door stands open; every other door has to be opened by its handle.
+        static void BuildDoors(Transform flat)
+        {
+            var doors = Group("Tueren", flat);
+            CreateDoor(doors, "Haustür", new Vector3(-0.6f, 0f, 2f), Vector3.right, Vector3.forward, 1.2f, false, s_FrontDoor);
+            CreateDoor(doors, "Küchentür", new Vector3(-1f, 0f, 3.5f), Vector3.forward, Vector3.left, 1f, false, s_Door);
+            CreateDoor(doors, "Badtür", new Vector3(-1f, 0f, 7.05f), Vector3.forward, Vector3.left, 0.9f, false, s_Door);
+            CreateDoor(doors, "Wohnzimmertür", new Vector3(1f, 0f, 5f), Vector3.forward, Vector3.right, 1f, true, s_Door);
+            CreateDoor(doors, "Schlafzimmertür", new Vector3(-0.5f, 0f, 9f), Vector3.right, Vector3.forward, 1f, false, s_Door);
+        }
 
-            var bath = Group("Bad", furniture);
-            CreateBox("Badewanne", bath, new Vector3(-5f, 0.275f, 8.55f), new Vector3(1.7f, 0.55f, 0.75f), s_LightFurniture);
-            CreateBox("WC", bath, new Vector3(-3.2f, 0.225f, 8.65f), new Vector3(0.4f, 0.45f, 0.6f), s_LightFurniture);
-            CreateBox("Waschbecken", bath, new Vector3(-2f, 0.425f, 8.7f), new Vector3(0.6f, 0.85f, 0.45f), s_LightFurniture);
+        static void CreateDoor(Transform parent, string name, Vector3 hinge, Vector3 closedDirection, Vector3 openDirection,
+            float width, bool startsOpen, Material material)
+        {
+            // Local +X runs along the closed leaf.
+            var rotation = Quaternion.Euler(0f, Mathf.Atan2(-closedDirection.z, closedDirection.x) * Mathf.Rad2Deg, 0f);
+            const float frame = 0.025f, thickness = 0.04f;
+            var leafHeight = k_DoorHeight - frame - 0.01f;
 
-            var bedroom = Group("Schlafzimmer", furniture);
-            CreateBox("Bett", bedroom, new Vector3(3.5f, 0.25f, 11f), new Vector3(1.6f, 0.5f, 2f), s_Fabric);
-            CreateBox("Nachttisch", bedroom, new Vector3(2.35f, 0.25f, 11.7f), new Vector3(0.45f, 0.5f, 0.4f), s_Furniture);
-            CreateBox("Kleiderschrank", bedroom, new Vector3(-1.8f, 1f, 11.6f), new Vector3(2f, 2f, 0.6f), s_Furniture);
+            var jamb = Group(name + " Zarge", parent);
+            jamb.SetLocalPositionAndRotation(hinge, rotation);
+            var frameDepth = k_WallThickness + 0.02f;
+            CreateBox("Zarge links", jamb, new Vector3(frame / 2f, k_DoorHeight / 2f, 0f), new Vector3(frame, k_DoorHeight, frameDepth), s_Frame, collider: false);
+            CreateBox("Zarge rechts", jamb, new Vector3(width - frame / 2f, k_DoorHeight / 2f, 0f), new Vector3(frame, k_DoorHeight, frameDepth), s_Frame, collider: false);
+            CreateBox("Zarge oben", jamb, new Vector3(width / 2f, k_DoorHeight - frame / 2f, 0f), new Vector3(width, frame, frameDepth), s_Frame, collider: false);
 
-            var hall = Group("Flur", furniture);
-            CreateBox("Kommode", hall, new Vector3(0.75f, 0.45f, 7.8f), new Vector3(0.35f, 0.9f, 0.8f), s_Furniture);
+            var door = new GameObject(name);
+            door.transform.SetParent(parent, false);
+            door.transform.SetLocalPositionAndRotation(hinge, rotation);
+            CreateBox("Türblatt", door.transform, new Vector3(width / 2f, leafHeight / 2f + 0.005f, 0f), new Vector3(width - 2f * frame - 0.01f, leafHeight, thickness), material, isStatic: false);
+            foreach (var side in new[] { -1f, 1f })
+            {
+                CreateBox("Rosette", door.transform, new Vector3(width - 0.1f, 1.05f, side * (thickness / 2f + 0.003f)), new Vector3(0.045f, 0.15f, 0.006f), s_Metal, collider: false, isStatic: false);
+                CreateBox("Klinkenhals", door.transform, new Vector3(width - 0.1f, 1.06f, side * (thickness / 2f + 0.02f)), new Vector3(0.018f, 0.018f, 0.04f), s_Metal, collider: false, isStatic: false);
+                CreateBox("Klinke", door.transform, new Vector3(width - 0.16f, 1.06f, side * (thickness / 2f + 0.04f)), new Vector3(0.13f, 0.02f, 0.018f), s_Metal, collider: false, isStatic: false);
+            }
+
+            // Kinematic so the moving leaf is a proper physics obstacle.
+            var body = door.AddComponent<Rigidbody>();
+            body.isKinematic = true;
+            body.useGravity = false;
+            var so = new SerializedObject(door.AddComponent<TatortVR.Door>());
+            so.FindProperty("m_DisplayName").stringValue = name;
+            so.FindProperty("m_OpenAngle").floatValue = Mathf.Sign(Vector3.SignedAngle(closedDirection, openDirection, Vector3.up)) * 95f;
+            so.FindProperty("m_StartsOpen").boolValue = startsOpen;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         static void BuildLivingRoom(Transform furniture)
         {
             var living = Group("Wohnzimmer", furniture);
-            CreateBox("Sofa", living, new Vector3(5.45f, 0.225f, 6f), new Vector3(0.9f, 0.45f, 2f), s_Fabric);
-            CreateBox("Sofa Lehne", living, new Vector3(5.8f, 0.6f, 6f), new Vector3(0.2f, 0.75f, 2f), s_Fabric);
-            CreateBox("Couchtisch", living, new Vector3(4.4f, 0.2f, 6f), new Vector3(0.6f, 0.4f, 1f), s_Furniture);
-            CreateBox("Teppich", living, new Vector3(4.3f, k_FloorTop + 0.003f, 6f), new Vector3(2.2f, 0.006f, 1.6f), CreateMaterial("Teppich", new Color(0.55f, 0.18f, 0.16f)), collider: false);
-            CreateBox("Esstisch", living, new Vector3(3f, 0.375f, 3.4f), new Vector3(1.2f, 0.75f, 0.8f), s_Furniture);
-            CreateBox("Stuhl", living, new Vector3(3f, 0.225f, 2.75f), new Vector3(0.45f, 0.45f, 0.45f), s_Furniture);
-            var tipped = CreateBox("Stuhl (umgekippt)", living, new Vector3(2.3f, 0.23f, 4.4f), new Vector3(0.45f, 0.45f, 0.45f), s_Furniture);
-            tipped.transform.localRotation = Quaternion.Euler(75f, 30f, 0f);
-            CreateBox("Regal", living, new Vector3(3.5f, 0.9f, 8.7f), new Vector3(1.6f, 1.8f, 0.4f), s_Furniture);
 
-            var stain = CreateBox("Fleck", living, new Vector3(2.7f, k_FloorTop + 0.002f, 5f), new Vector3(0.6f, 0.004f, 0.4f), s_Stain, collider: false);
-            stain.transform.localRotation = Quaternion.Euler(0f, 25f, 0f);
-            // Evidence markers are placed by the trainee (see TatortInteractionBuilder).
+            // Sofa against the east wall. The interaction builder puts a trace on its seat.
+            Kit.Place("loungeSofa", "Sofa", living, new Vector3(5.515f, k_FloorTop, 6f), Vector3.left);
+            Kit.PlaceOnTop("pillow", "Kissen", living, 5.6f, 5.5f, Vector3.left);
+            Kit.Place("tableCoffee", "Couchtisch", living, new Vector3(4.4f, k_FloorTop, 6f), Vector3.left, 0.17f);
+            // The rug ends before the spot where the phone lies and well short of the blood.
+            Kit.Place("rugRectangle", "Teppich", living, new Vector3(4.4f, k_FloorTop, 5.95f), Vector3.left, 0.135f, false,
+                ("carpet", CreateMaterial("Teppich", new Color(0.55f, 0.18f, 0.16f))), ("carpetDarker", CreateMaterial("Teppich_Rand", new Color(0.38f, 0.12f, 0.11f))));
+
+            // The drinking glass stands on the dining table.
+            Kit.Place("table", "Esstisch", living, new Vector3(3f, k_FloorTop, 3.4f), Vector3.back, 0.23f);
+            Kit.Place("chair", "Stuhl 1", living, new Vector3(3f, k_FloorTop, 2.52f), Vector3.forward);
+            Kit.Place("chair", "Stuhl 2", living, new Vector3(4.27f, k_FloorTop, 3.4f), Vector3.left);
+            // Knocked over in the struggle: lying on its side.
+            Kit.Place("chair", "Stuhl (umgekippt)", living, new Vector3(2.25f, k_FloorTop, 4.3f), Quaternion.Euler(0f, 30f, 90f));
+
+            // Two bookcases on the north wall with books on every board except the top one.
+            for (var i = 0; i < 2; i++)
+            {
+                var x = 3.1f + i * 0.8f;
+                Kit.Place("bookcaseOpen", "Regal " + (i + 1), living, new Vector3(x, k_FloorTop, 8.675f), Vector3.back);
+                var boards = Kit.SurfacesBelow(new Vector3(x, 2.4f, 8.62f), k_FloorTop + 0.03f);
+                for (var board = 1; board < boards.Count; board++)
+                for (var slot = 0; slot < 2; slot++)
+                {
+                    if ((board + slot + i) % 3 != 2)
+                        Kit.Place("books", "Buecher", living, new Vector3(x - 0.17f + slot * 0.34f, boards[board], 8.62f), (board + slot) % 2 == 0 ? Vector3.back : Vector3.forward, collider: false);
+                }
+            }
+
+            Kit.Place("lampRoundFloor", "Stehlampe", living, new Vector3(5.55f, k_FloorTop, 8.55f), Vector3.back);
+            // Opposite the sofa, north of the door so the fingerprints on the wall stay reachable.
+            Kit.Place("cabinetTelevision", "TV-Schrank", living, new Vector3(1.325f, k_FloorTop, 7.8f), Vector3.right);
+            Kit.PlaceOnTop("televisionModern", "Fernseher", living, 1.3f, 7.8f, Vector3.right, 0.16f, 2f, ("metal", s_Dark));
+            Kit.Place("pottedPlant", "Zimmerpflanze", living, new Vector3(5.62f, k_FloorTop, 2.42f), Vector3.back);
+            CeilingLamp(living, 3.5f, 5.5f);
+
+            // Picture on the south wall, next to the window.
+            CreateBox("Bild Rahmen", living, new Vector3(5.1f, 1.55f, 2.085f), new Vector3(0.92f, 0.62f, 0.02f), s_Dark, collider: false);
+            CreateBox("Bild", living, new Vector3(5.1f, 1.55f, 2.097f), new Vector3(0.84f, 0.54f, 0.004f), CreateMaterial("Bild", new Color(0.45f, 0.6f, 0.65f)), collider: false);
+            // Blood, evidence and markers belong to the interactive part (see TatortInteractionBuilder).
         }
+
+        static void BuildKitchen(Transform furniture)
+        {
+            var kitchen = Group("Kueche", furniture);
+
+            // Units along the west wall, each 0.86 m wide; sink and plain unit stand under the window.
+            const float row = -5.475f;
+            Kit.Place("kitchenCabinetDrawer", "Schubladenschrank", kitchen, new Vector3(row, k_FloorTop, 2.53f), Vector3.right);
+            Kit.Place("kitchenSink", "Spuele", kitchen, new Vector3(row, k_FloorTop, 3.39f), Vector3.right);
+            Kit.Place("kitchenCabinet", "Unterschrank", kitchen, new Vector3(row, k_FloorTop, 4.25f), Vector3.right);
+            Kit.Place("kitchenStoveElectric", "Herd", kitchen, new Vector3(row, k_FloorTop, 5.11f), Vector3.right);
+            Kit.Place("hoodModern", "Dunstabzug", kitchen, new Vector3(-5.64f, 1.6f, 5.11f), Vector3.right);
+            Kit.Place("kitchenCabinetUpperDouble", "Haengeschrank", kitchen, new Vector3(-5.705f, 1.45f, 2.53f), Vector3.right);
+            Kit.PlaceOnTop("kitchenCoffeeMachine", "Kaffeemaschine", kitchen, -5.6f, 2.5f, Vector3.right, 0.15f, 1.4f);
+            Kit.PlaceOnTop("toaster", "Toaster", kitchen, -5.6f, 4.3f, Vector3.right, 0.14f, 1.4f);
+            Kit.Place("kitchenFridge", "Kuehlschrank", kitchen, new Vector3(-4.55f, k_FloorTop, 5.635f), Vector3.back);
+            Kit.Place("trashcan", "Muelleimer", kitchen, new Vector3(-3.85f, k_FloorTop, 5.7f), Vector3.back, 0.12f);
+
+            // Clear of the arc the kitchen door swings through.
+            Kit.Place("tableCross", "Kuechentisch", kitchen, new Vector3(-3.1f, k_FloorTop, 3.9f), Vector3.right, 0.215f);
+            Kit.Place("chair", "Kuechenstuhl 1", kitchen, new Vector3(-3.83f, k_FloorTop, 3.6f), Vector3.right);
+            Kit.Place("chair", "Kuechenstuhl 2", kitchen, new Vector3(-2.37f, k_FloorTop, 4.25f), Vector3.left);
+            CeilingLamp(kitchen, -3.3f, 4f);
+        }
+
+        static void BuildBathroom(Transform furniture)
+        {
+            var bath = Group("Bad", furniture);
+            Kit.Place("bathtub", "Badewanne", bath, new Vector3(-4.95f, k_FloorTop, 8.5f), Vector3.back, 0.15f);
+            Kit.Place("toilet", "WC", bath, new Vector3(-3.3f, k_FloorTop, 8.56f), Vector3.back, 0.15f);
+            // The wash basin hangs on the wall, so it starts above the floor.
+            Kit.Place("bathroomCabinetDrawer", "Waschtisch", bath, new Vector3(-2f, 0.12f, 8.65f), Vector3.back, 0.17f);
+            var mirror = CreateMaterial("Spiegel", new Color(0.75f, 0.85f, 0.9f));
+            mirror.SetFloat("_Smoothness", 0.9f);
+            Kit.Place("bathroomMirror", "Spiegel", bath, new Vector3(-2f, 1.2f, 8.8f), Vector3.back, 0.17f, false, ("glass", mirror));
+            Kit.Place("washer", "Waschmaschine", bath, new Vector3(-5.5f, k_FloorTop, 6.41f), Vector3.forward, 0.17f);
+            Kit.Place("rugDoormat", "Badematte", bath, new Vector3(-4.9f, k_FloorTop, 7.8f), Vector3.back, 0.17f, false,
+                ("wood", CreateMaterial("Badematte", new Color(0.55f, 0.7f, 0.78f))));
+            CeilingLamp(bath, -3.5f, 7.4f);
+        }
+
+        static void BuildBedroom(Transform furniture)
+        {
+            var bedroom = Group("Schlafzimmer", furniture);
+            // Head of the bed at the north wall, a bedside cabinet on either side.
+            Kit.Place("bedDouble", "Bett", bedroom, new Vector3(3.5f, k_FloorTop, 10.9f), Vector3.back, 0.18f);
+            Kit.Place("cabinetBedDrawer", "Nachttisch links", bedroom, new Vector3(2.33f, k_FloorTop, 11.7f), Vector3.back);
+            Kit.Place("cabinetBedDrawer", "Nachttisch rechts", bedroom, new Vector3(4.67f, k_FloorTop, 11.7f), Vector3.back);
+            Kit.PlaceOnTop("lampSquareTable", "Nachttischlampe", bedroom, 2.33f, 11.72f, Vector3.back, 0.15f);
+
+            for (var i = 0; i < 2; i++)
+                Kit.Place("bookcaseClosedDoors", "Kleiderschrank " + (i + 1), bedroom, new Vector3(-2.27f + i * 0.94f, k_FloorTop, 11.63f), Vector3.back, 0.235f);
+
+            // Desk under the west window.
+            Kit.Place("desk", "Schreibtisch", bedroom, new Vector3(-5.53f, k_FloorTop, 10.5f), Vector3.right);
+            Kit.Place("chairDesk", "Schreibtischstuhl", bedroom, new Vector3(-4.75f, k_FloorTop, 10.45f), Vector3.left, 0.17f);
+            Kit.PlaceOnTop("laptop", "Laptop", bedroom, -5.5f, 10.5f, Vector3.right, 0.13f);
+
+            Kit.Place("rugRound", "Teppich", bedroom, new Vector3(1.4f, k_FloorTop, 10.5f), Vector3.back, 0.16f, false);
+            Kit.Place("pottedPlant", "Zimmerpflanze", bedroom, new Vector3(5.5f, k_FloorTop, 11.5f), Vector3.back);
+            CeilingLamp(bedroom, 0f, 10.5f);
+        }
+
+        static void BuildHallway(Transform furniture)
+        {
+            var hall = Group("Flur", furniture);
+            Kit.Place("sideTableDrawers", "Kommode", hall, new Vector3(0.735f, k_FloorTop, 7.8f), Vector3.left, 0.17f);
+            Kit.PlaceOnTop("plantSmall1", "Topfpflanze", hall, 0.74f, 7.5f, Vector3.left);
+            // Out of the way of the front door, which swings into the hallway.
+            Kit.Place("coatRackStanding", "Garderobe", hall, new Vector3(0.6f, k_FloorTop, 3.3f), Vector3.back, 0.22f);
+            Kit.PlaceOnTop("rugDoormat", "Fussmatte", hall, 0f, 1.6f, Vector3.back, Kit.Scale, 2f, ("wood", CreateMaterial("Fussmatte", new Color(0.24f, 0.21f, 0.19f))));
+            CeilingLamp(hall, 0f, 5.5f);
+        }
+
+        // Hanging lamp; the kit model is 0.46 m tall at the default scale.
+        static void CeilingLamp(Transform parent, float x, float z) =>
+            Kit.Place("lampSquareCeiling", "Deckenlampe", parent, new Vector3(x, k_WallHeight - 0.46f, z), Vector3.back, collider: false);
 
         static void BuildTeleportAnchors(Transform root)
         {
@@ -264,7 +422,7 @@ namespace TatortVR.EditorTools
             CreateAnchor(anchorPrefab, anchors, "Teleportpunkt Start", StartPosition + new Vector3(0f, k_FloorTop, 0f), Vector3.forward);
             CreateAnchor(anchorPrefab, anchors, "Teleportpunkt Eingang", new Vector3(0f, k_FloorTop, 0.9f), Vector3.forward);
             CreateAnchor(anchorPrefab, anchors, "Teleportpunkt Flur", new Vector3(0f, k_FloorTop, 4.5f), Vector3.forward);
-            CreateAnchor(anchorPrefab, anchors, "Teleportpunkt Tatort", new Vector3(1.8f, k_FloorTop, 7.9f), new Vector3(1f, 0f, -1.2f));
+            CreateAnchor(anchorPrefab, anchors, "Teleportpunkt Tatort", new Vector3(1.75f, k_FloorTop, 6.45f), new Vector3(1f, 0f, -0.2f));
         }
 
         static void CreateAnchor(GameObject prefab, Transform parent, string name, Vector3 position, Vector3 lookDirection)
@@ -282,7 +440,8 @@ namespace TatortVR.EditorTools
             boards.SetParent(root, false);
             var eye = StartPosition + new Vector3(0f, 1.5f, 0f);
 
-            var statusPos = new Vector3(1.5f, 1.45f, -0.6f);
+            // Off to the right so it does not hide the way to the entrance.
+            var statusPos = new Vector3(3f, 1.45f, -1.3f);
             CreateBox("Staender Status", boards, new Vector3(statusPos.x, 0.55f, statusPos.z), new Vector3(0.06f, 1.1f, 0.06f), s_Fence);
             CreateSign("Titel Status", boards, statusPos + new Vector3(0, 0.38f, 0), FlatDirection(eye - statusPos), new Vector2(1.2f, 0.12f), "Controller-Status", 44);
             var status = CreateSign("Controller-Status", boards, statusPos, FlatDirection(eye - statusPos), new Vector2(1.2f, 0.62f), "Warte auf XR …", 24, alignment: TextAnchor.UpperLeft);
@@ -293,10 +452,11 @@ namespace TatortVR.EditorTools
 
             var helpPos = new Vector3(-1.5f, 1.45f, -0.6f);
             CreateBox("Staender Steuerung", boards, new Vector3(helpPos.x, 0.55f, helpPos.z), new Vector3(0.06f, 1.1f, 0.06f), s_Fence);
-            CreateSign("Steuerung", boards, helpPos, FlatDirection(eye - helpPos), new Vector2(1.2f, 0.74f),
+            CreateSign("Steuerung", boards, helpPos, FlatDirection(eye - helpPos), new Vector2(1.3f, 0.8f),
                 "Steuerung\n\nLinker Stick: gehen\nRechter Stick nach vorn: Teleport zielen, loslassen springt\n" +
-                "Rechter Stick seitlich: drehen\nGrip: greifen, Knopf drücken\nTrigger: Kamera auslösen / Pistole abfeuern\n" +
-                "Linke Hüfte: Beweisbeutel, rechte Hüfte: Pistole,\nvor dem Bauch: Kamera. Holster lädt die Pistole nach.", 22, alignment: TextAnchor.UpperLeft);
+                "Rechter Stick seitlich: drehen\nGrip: greifen, Türen öffnen und schließen, Knopf drücken\n" +
+                "Trigger: Kamera auslösen, UV-Lampe schalten,\nleere Verpackung wechseln (Kunststoff, Papier, Abschirmung)\n\n" +
+                "Am Körper: Verpackungen (linke Hüfte), Spurenmarker (Gürtel\nvorne links), Kamera (vor dem Bauch), Dienstwaffe (rechte Hüfte)", 21, alignment: TextAnchor.UpperLeft);
         }
 
         internal static Vector3 FlatDirection(Vector3 v)
@@ -326,7 +486,19 @@ namespace TatortVR.EditorTools
                 AddWallPiece(wall, opening.Start, opening.End, 0f, opening.Bottom, thickness, material);
                 AddWallPiece(wall, opening.Start, opening.End, opening.Top, height, thickness, material);
                 if (opening.Bottom > 0f)
+                {
+                    // Closed window: solid glass in a frame with a sill.
                     AddWallPiece(wall, opening.Start, opening.End, opening.Bottom, opening.Top, 0.02f, s_Glass, "Fenster");
+                    const float bar = 0.05f;
+                    var depth = thickness + 0.02f;
+                    var middle = (opening.Start + opening.End) / 2f;
+                    AddFramePiece(wall, opening.Start, opening.Start + bar, opening.Bottom, opening.Top, depth);
+                    AddFramePiece(wall, opening.End - bar, opening.End, opening.Bottom, opening.Top, depth);
+                    AddFramePiece(wall, opening.Start, opening.End, opening.Top - bar, opening.Top, depth);
+                    AddFramePiece(wall, opening.Start - 0.03f, opening.End + 0.03f, opening.Bottom, opening.Bottom + 0.03f, thickness + 0.1f);
+                    AddFramePiece(wall, middle - 0.02f, middle + 0.02f, opening.Bottom, opening.Top, 0.05f);
+                }
+
                 cursor = opening.End;
             }
 
@@ -340,6 +512,19 @@ namespace TatortVR.EditorTools
             var piece = CreateBox(name, wall, new Vector3((x0 + x1) / 2, (y0 + y1) / 2, 0f), new Vector3(x1 - x0, y1 - y0, thickness), material);
             if (material == s_Glass)
                 piece.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+        }
+
+        static void AddFramePiece(Transform wall, float x0, float x1, float y0, float y1, float depth) =>
+            CreateBox("Rahmen", wall, new Vector3((x0 + x1) / 2, (y0 + y1) / 2, 0f), new Vector3(x1 - x0, y1 - y0, depth), s_Frame, collider: false);
+
+        internal static GameObject CreateMeshObject(string name, Transform parent, Mesh mesh, Material material, Vector3 localPosition, Quaternion localRotation)
+        {
+            var go = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer));
+            go.transform.SetParent(parent, false);
+            go.transform.SetLocalPositionAndRotation(localPosition, localRotation);
+            go.GetComponent<MeshFilter>().sharedMesh = mesh;
+            go.GetComponent<MeshRenderer>().sharedMaterial = material;
+            return go;
         }
 
         // Thin floor slab on top of the ground; each one is its own teleport area.

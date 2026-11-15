@@ -11,7 +11,8 @@ namespace TatortVR
     /// <summary>
     /// Service pistol carried in the right hip holster. Each trigger pull fires one round along the barrel:
     /// muzzle flash, shot sound, recoil vibration and a bullet hole where it hits. Putting it back into the
-    /// holster reloads the magazine. Hitting evidence costs points.
+    /// holster reloads the magazine. There is no threat at the secured scene, so drawing the weapon, firing it
+    /// and hitting evidence all cost points.
     /// </summary>
     [RequireComponent(typeof(XRGrabInteractable))]
     public class Pistol : MonoBehaviour
@@ -26,6 +27,8 @@ namespace TatortVR
         [SerializeField] float m_ImpactImpulse = 1.5f;
         [SerializeField] float m_FlashDuration = 0.05f;
         [SerializeField] int m_MaxImpacts = 40;
+        [SerializeField] int m_DrawPenalty = 10;
+        [SerializeField] int m_ShotPenalty = 20;
         [SerializeField] int m_EvidenceHitPenalty = 25;
 
         const float k_ImpactSize = 0.025f;
@@ -70,14 +73,21 @@ namespace TatortVR
                 hand.SendHapticImpulse(0.9f, 0.08f);
         }
 
-        // Holstering reloads.
+        // Taking the pistol into the hand is drawing it; holstering reloads.
         void OnSelected(SelectEnterEventArgs args)
         {
-            if (!(args.interactorObject is XRSocketInteractor) || Rounds == m_MagazineSize)
+            var progress = TrainingProgress.Instance;
+            if (!(args.interactorObject is XRSocketInteractor))
+            {
+                if (progress != null)
+                    progress.ReportMistake("Dienstwaffe ohne Bedrohungslage gezogen", m_DrawPenalty);
+                return;
+            }
+
+            if (Rounds == m_MagazineSize)
                 return;
             Rounds = m_MagazineSize;
             UpdateDisplay();
-            var progress = TrainingProgress.Instance;
             if (progress != null)
                 progress.ShowMessage("Pistole nachgeladen");
         }
@@ -100,7 +110,10 @@ namespace TatortVR
             SetFlash(true);
             m_FlashOffAt = Time.time + m_FlashDuration;
             if (progress != null)
+            {
                 progress.RegisterShot();
+                progress.ReportMistake("Schuss am Tatort abgegeben", m_ShotPenalty);
+            }
 
             if (!Physics.Raycast(m_Muzzle.position, m_Muzzle.forward, out var hit, m_Range, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
                 return true;
@@ -110,8 +123,12 @@ namespace TatortVR
             AddImpact(hit);
 
             var evidence = hit.collider.GetComponentInParent<EvidenceItem>();
-            if (evidence != null && progress != null)
-                progress.ReportMistake($"Auf {evidence.DisplayName} geschossen", m_EvidenceHitPenalty);
+            if (evidence != null && evidence.isActiveAndEnabled && progress != null)
+            {
+                progress.ReportMistake($"{evidence.DisplayName} durch Schuss beschädigt", m_EvidenceHitPenalty);
+                progress.NoteSceneChange();
+            }
+
             return true;
         }
 

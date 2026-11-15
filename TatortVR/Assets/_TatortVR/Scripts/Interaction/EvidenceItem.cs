@@ -7,37 +7,49 @@ using UnityEngine.XR.Interaction.Toolkit.Interactors;
 namespace TatortVR
 {
     /// <summary>
-    /// An object at the scene that should be photographed where it was found, then picked up with gloves
-    /// and sealed in an <see cref="EvidenceBag"/>. Skipping a step is reported as a mistake.
+    /// An object at the scene that is marked and photographed where it was found, then picked up with fresh
+    /// gloves and sealed in the right kind of <see cref="EvidenceBag"/>. Skipping a step is reported as a mistake.
     /// </summary>
     [RequireComponent(typeof(XRGrabInteractable))]
-    public class EvidenceItem : MonoBehaviour
+    public class EvidenceItem : SceneTrace
     {
-        [SerializeField] string m_DisplayName = "Beweisstück";
+        public enum PackagingRule
+        {
+            Beliebig,
+            Papier,
+            Kunststoff,
+            Abschirmung,
+        }
+
         [Tooltip("Scale inside the bag, so longer items fit.")]
         [SerializeField] float m_BaggedScale = 0.6f;
         [Tooltip("Rotation inside the bag; the default stands items whose long side is their X axis upright.")]
         [SerializeField] Vector3 m_BaggedRotation = new Vector3(0f, 0f, 90f);
+        [SerializeField] PackagingRule m_Packaging;
+        [Tooltip("Shown when the item is sealed in the wrong packaging.")]
+        [SerializeField] string m_PackagingHint = "";
         [SerializeField] int m_NoGlovesPenalty = 10;
-        [SerializeField] int m_NotPhotographedPenalty = 10;
+        [SerializeField] int m_NotDocumentedPenalty = 10;
 
-        static readonly List<EvidenceItem> s_All = new List<EvidenceItem>();
+        static readonly List<EvidenceItem> s_Items = new List<EvidenceItem>();
 
         XRGrabInteractable m_Grab;
         Renderer[] m_Renderers;
         bool m_ReportedGloves;
-        bool m_ReportedPhoto;
 
-        public static IReadOnlyList<EvidenceItem> All => s_All;
+        public static IReadOnlyList<EvidenceItem> All => s_Items;
 
-        public string DisplayName => m_DisplayName;
-        public bool IsDocumented { get; private set; }
+        public PackagingRule Packaging => m_Packaging;
+        public string PackagingHint => m_PackagingHint;
         public bool HasBeenMoved { get; private set; }
         public bool IsBagged { get; private set; }
-        public EvidenceMarker Marker { get; internal set; }
+        public bool IsSample { get; private set; }
         public bool IsHeldByHand => m_Grab.isSelected && !(m_Grab.firstInteractorSelecting is XRSocketInteractor);
 
-        public Vector3 Center
+        public override bool IsInPlace => !HasBeenMoved && !IsBagged;
+        public override bool NeedsOwnDocumentation => !IsSample;
+
+        public override Vector3 Center
         {
             get
             {
@@ -57,22 +69,24 @@ namespace TatortVR
             m_Grab.selectEntered.AddListener(OnGrabbed);
         }
 
-        void OnEnable() => s_All.Add(this);
-        void OnDisable() => s_All.Remove(this);
-        void OnDestroy() => m_Grab.selectEntered.RemoveListener(OnGrabbed);
-
-        /// <summary>Marks the item as photographed in place. Fails once it has been picked up.</summary>
-        public bool TryDocument()
+        protected override void OnEnable()
         {
-            if (IsDocumented || HasBeenMoved || IsBagged)
-                return false;
-            IsDocumented = true;
-            return true;
+            base.OnEnable();
+            s_Items.Add(this);
         }
+
+        protected override void OnDisable()
+        {
+            base.OnDisable();
+            s_Items.Remove(this);
+        }
+
+        void OnDestroy() => m_Grab.selectEntered.RemoveListener(OnGrabbed);
 
         void OnGrabbed(SelectEnterEventArgs args)
         {
-            if (args.interactorObject is XRSocketInteractor)
+            // A swab only becomes evidence once it has taken a sample.
+            if (!isActiveAndEnabled || args.interactorObject is XRSocketInteractor)
                 return;
 
             var progress = TrainingProgress.Instance;
@@ -87,18 +101,30 @@ namespace TatortVR
                     penalty += m_NoGlovesPenalty;
                 }
 
-                if (!m_ReportedPhoto && !IsDocumented && !HasBeenMoved)
+                if (NeedsOwnDocumentation && !IsDocumented && !HasBeenMoved)
                 {
-                    m_ReportedPhoto = true;
-                    problems.Add("vor dem Fotografieren bewegt");
-                    penalty += m_NotPhotographedPenalty;
+                    problems.Add(Marker == null ? "ohne Spurenmarker und Detailfoto bewegt" : "vor dem Detailfoto bewegt");
+                    penalty += m_NotDocumentedPenalty;
                 }
 
                 if (problems.Count > 0)
-                    progress.ReportMistake($"{m_DisplayName} {string.Join(" und ", problems)}", penalty);
+                    progress.ReportMistake($"{DisplayName} {string.Join(" und ", problems)}", penalty);
+                progress.NoteSceneChange();
+                progress.NoteEvidenceContact(this);
             }
 
             HasBeenMoved = true;
+        }
+
+        /// <summary>Turns a used swab into evidence that shares the marker and photo of the trace it was taken from.</summary>
+        public void BecomeSample(SceneTrace source, string displayName)
+        {
+            m_DisplayName = displayName;
+            IsSample = true;
+            HasBeenMoved = true;
+            IsDocumented = source.IsDocumented;
+            Marker = source.Marker;
+            enabled = true;
         }
 
         /// <summary>Releases the item from the hand and fixes it inside <paramref name="container"/>.</summary>
@@ -110,7 +136,13 @@ namespace TatortVR
             m_Grab.enabled = false;
 
             if (TryGetComponent<Rigidbody>(out var body))
+            {
                 body.isKinematic = true;
+                // An interpolated body keeps its own world pose and would stay behind in mid-air when the bag moves.
+                body.interpolation = RigidbodyInterpolation.None;
+                body.detectCollisions = false;
+            }
+
             foreach (var itemCollider in GetComponentsInChildren<Collider>())
                 itemCollider.enabled = false;
 

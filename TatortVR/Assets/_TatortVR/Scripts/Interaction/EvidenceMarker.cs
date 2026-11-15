@@ -8,7 +8,7 @@ namespace TatortVR
 {
     /// <summary>
     /// Numbered evidence marker. When let go it stands upright on the surface below and is assigned to the
-    /// nearest unmarked <see cref="EvidenceItem"/>. Picking it up again removes the assignment.
+    /// nearest unmarked <see cref="SceneTrace"/>. Picking it up again removes the assignment.
     /// </summary>
     [RequireComponent(typeof(XRGrabInteractable))]
     public class EvidenceMarker : MonoBehaviour
@@ -22,7 +22,7 @@ namespace TatortVR
         bool m_PlacePending;
 
         public int Number { get; private set; }
-        public EvidenceItem MarkedItem { get; private set; }
+        public SceneTrace MarkedTrace { get; private set; }
         public bool IsPlaced { get; private set; }
 
         void Awake()
@@ -55,11 +55,10 @@ namespace TatortVR
             if (args.interactorObject is XRSocketInteractor)
                 return;
             IsPlaced = false;
-            if (MarkedItem != null)
-            {
-                MarkedItem.Marker = null;
-                MarkedItem = null;
-            }
+            // A trace that is already photographed keeps its number.
+            if (MarkedTrace != null && !MarkedTrace.IsDocumented)
+                MarkedTrace.Marker = null;
+            MarkedTrace = null;
         }
 
         void OnReleased(SelectExitEventArgs args)
@@ -89,38 +88,49 @@ namespace TatortVR
             if (m_Body != null)
                 m_Body.isKinematic = true;
             IsPlaced = true;
-            AssignNearestEvidence();
+
+            var progress = TrainingProgress.Instance;
+            if (progress != null)
+                progress.NoteSceneChange();
+            AssignNearestTrace();
         }
 
-        void AssignNearestEvidence()
+        void AssignNearestTrace()
         {
-            EvidenceItem nearest = null;
+            SceneTrace nearest = null;
+            SceneTrace nearestMarked = null;
             var nearestDistance = m_AssignRadius;
-            foreach (var item in EvidenceItem.All)
+            foreach (var trace in SceneTrace.AllTraces)
             {
-                if (item.IsBagged || item.IsHeldByHand)
+                if (!trace.NeedsOwnDocumentation || !trace.IsInPlace)
                     continue;
-                var distance = Vector3.Distance(item.Center, transform.position);
-                if (distance < nearestDistance)
+                var distance = trace.MarkDistance(transform.position);
+                if (distance >= m_AssignRadius)
+                    continue;
+                if (trace.Marker != null)
+                {
+                    nearestMarked = trace;
+                }
+                else if (distance < nearestDistance)
                 {
                     nearestDistance = distance;
-                    nearest = item;
+                    nearest = trace;
                 }
             }
 
             var progress = TrainingProgress.Instance;
-            if (nearest != null && nearest.Marker == null)
+            if (nearest != null)
             {
                 nearest.Marker = this;
-                MarkedItem = nearest;
+                MarkedTrace = nearest;
                 if (progress != null)
                     progress.RegisterMarker(Number, nearest);
             }
             else if (progress != null)
             {
-                progress.ShowMessage(nearest != null
-                    ? $"{nearest.DisplayName} hat schon Spurenmarker {nearest.Marker.Number}"
-                    : $"Spurenmarker {Number} steht bei keinem Beweisstück");
+                progress.ShowMessage(nearestMarked != null
+                    ? $"{nearestMarked.DisplayName} hat schon Spurenmarker {nearestMarked.Marker.Number}"
+                    : $"Spurenmarker {Number} steht bei keiner Spur");
             }
         }
     }

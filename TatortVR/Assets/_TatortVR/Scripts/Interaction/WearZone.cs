@@ -3,8 +3,8 @@ using UnityEngine;
 namespace TatortVR
 {
     /// <summary>
-    /// Trigger volume on a hand or on the chest. Holding a matching <see cref="WearableItem"/> inside it
-    /// for a moment puts the item on.
+    /// Trigger volume on a hand, at the chest or at the face. Holding a matching <see cref="WearableItem"/>
+    /// inside it for a moment puts the item on.
     /// </summary>
     public class WearZone : MonoBehaviour
     {
@@ -12,6 +12,7 @@ namespace TatortVR
         {
             Hand,
             Body,
+            Head,
         }
 
         [SerializeField] ZoneType m_Type;
@@ -57,12 +58,19 @@ namespace TatortVR
             m_Candidate = null;
         }
 
+        static ZoneType ZoneFor(TrainingProgress.Equipment equipment)
+        {
+            switch (equipment)
+            {
+                case TrainingProgress.Equipment.Handschuhe: return ZoneType.Hand;
+                case TrainingProgress.Equipment.Mundschutz: return ZoneType.Head;
+                default: return ZoneType.Body;
+            }
+        }
+
         bool Accepts(WearableItem item)
         {
-            if (!item.isActiveAndEnabled || !item.IsHeld)
-                return false;
-            var isGloves = item.Equipment == TrainingProgress.Equipment.Handschuhe;
-            if (isGloves != (m_Type == ZoneType.Hand))
+            if (!item.isActiveAndEnabled || !item.IsHeld || ZoneFor(item.Equipment) != m_Type)
                 return false;
             return m_Type != ZoneType.Hand || m_HandRoot == null || !item.Holder.IsChildOf(m_HandRoot);
         }

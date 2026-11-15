@@ -8,9 +8,9 @@ using UnityEngine.XR.Interaction.Toolkit.Interactors;
 namespace TatortVR
 {
     /// <summary>
-    /// Evidence camera. Pulling the trigger while holding it takes a photo: every unsecured
-    /// <see cref="EvidenceItem"/> and every currently lit <see cref="LatentTrace"/> inside the field of view
-    /// and not hidden behind something counts as documented.
+    /// Evidence camera. Pulling the trigger while holding it takes a photo of every <see cref="SceneTrace"/>
+    /// and every currently lit <see cref="LatentTrace"/> inside the field of view that is not hidden behind
+    /// something. <see cref="TrainingProgress"/> decides what the photo counts as.
     /// </summary>
     [RequireComponent(typeof(XRGrabInteractable))]
     public class PhotoCamera : MonoBehaviour
@@ -19,14 +19,14 @@ namespace TatortVR
         [SerializeField] Light m_Flash;
         [SerializeField] GameObject m_FlashGlow;
         [SerializeField] Text m_Display;
-        [SerializeField] float m_Range = 4f;
-        [SerializeField] float m_FieldOfView = 50f;
+        [SerializeField] float m_Range = 6f;
+        [SerializeField] float m_FieldOfView = 60f;
         [SerializeField] float m_Cooldown = 0.6f;
         [SerializeField] float m_FlashDuration = 0.1f;
 
         XRGrabInteractable m_Grab;
-        readonly List<EvidenceItem> m_InView = new List<EvidenceItem>();
-        readonly List<LatentTrace> m_TracesInView = new List<LatentTrace>();
+        readonly List<SceneTrace> m_InView = new List<SceneTrace>();
+        readonly List<LatentTrace> m_LatentInView = new List<LatentTrace>();
         int m_PhotoCount;
         float m_LastPhoto = float.NegativeInfinity;
         float m_FlashOffAt = -1f;
@@ -58,10 +58,10 @@ namespace TatortVR
             SetFlash(true);
             m_FlashOffAt = Time.time + m_FlashDuration;
 
-            CollectEvidenceInView();
+            CollectTracesInView();
             var progress = TrainingProgress.Instance;
             if (progress != null)
-                progress.RegisterPhoto(m_PhotoCount, m_InView, m_TracesInView);
+                progress.RegisterPhoto(m_PhotoCount, m_InView, m_LatentInView);
             UpdateDisplay();
             return true;
         }
@@ -74,38 +74,36 @@ namespace TatortVR
             SetFlash(false);
         }
 
-        void CollectEvidenceInView()
+        void CollectTracesInView()
         {
             m_InView.Clear();
-            foreach (var item in EvidenceItem.All)
+            foreach (var trace in SceneTrace.AllTraces)
             {
-                if (item.IsBagged)
+                if (trace is EvidenceItem item && item.IsBagged)
                     continue;
-                var toItem = item.Center - m_Lens.position;
-                var distance = toItem.magnitude;
-                if (distance > m_Range || Vector3.Angle(m_Lens.forward, toItem) > m_FieldOfView / 2f)
-                    continue;
-                // Hidden behind a wall or furniture?
-                if (Physics.Raycast(m_Lens.position, toItem / distance, out var hit, distance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
-                    && hit.collider.GetComponentInParent<EvidenceItem>() != item)
-                    continue;
-                m_InView.Add(item);
+                if (IsInFrame(trace.Center, trace))
+                    m_InView.Add(trace);
             }
 
-            m_TracesInView.Clear();
+            m_LatentInView.Clear();
             foreach (var trace in LatentTrace.All)
             {
-                if (!trace.IsVisible)
-                    continue;
-                var toTrace = trace.transform.position - m_Lens.position;
-                var distance = toTrace.magnitude;
-                if (distance > m_Range || Vector3.Angle(m_Lens.forward, toTrace) > m_FieldOfView / 2f)
-                    continue;
-                // Traces sit on surfaces, so stop the ray just short of them.
-                if (Physics.Raycast(m_Lens.position, toTrace / distance, distance - 0.05f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
-                    continue;
-                m_TracesInView.Add(trace);
+                if (trace.IsVisible && IsInFrame(trace.transform.position, null))
+                    m_LatentInView.Add(trace);
             }
+        }
+
+        // Inside the field of view and not hidden behind a wall or furniture. Traces lie on surfaces, so the
+        // ray stops just short of them; hitting the trace's own collider does not count as hidden.
+        bool IsInFrame(Vector3 point, SceneTrace owner)
+        {
+            var toPoint = point - m_Lens.position;
+            var distance = toPoint.magnitude;
+            if (distance > m_Range || Vector3.Angle(m_Lens.forward, toPoint) > m_FieldOfView / 2f)
+                return false;
+            if (!Physics.Raycast(m_Lens.position, toPoint / distance, out var hit, distance - 0.04f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                return true;
+            return owner != null && hit.collider.GetComponentInParent<SceneTrace>() == owner;
         }
 
         void SetFlash(bool on)

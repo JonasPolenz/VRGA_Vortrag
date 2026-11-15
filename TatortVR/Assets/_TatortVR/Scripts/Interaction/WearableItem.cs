@@ -1,11 +1,12 @@
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
+using UnityEngine.XR.Interaction.Toolkit.Interactors;
 
 namespace TatortVR
 {
     /// <summary>
     /// Protective equipment that is "put on" by holding it to the matching <see cref="WearZone"/>:
-    /// gloves to the other hand, the suit to the chest.
+    /// gloves to the other hand, the suit to the chest, the face mask to the face.
     /// </summary>
     [RequireComponent(typeof(XRGrabInteractable))]
     public class WearableItem : MonoBehaviour
@@ -15,7 +16,7 @@ namespace TatortVR
         XRGrabInteractable m_Grab;
 
         public TrainingProgress.Equipment Equipment => m_Equipment;
-        public bool IsHeld => m_Grab.isSelected;
+        public bool IsHeld => m_Grab.isSelected && !(m_Grab.firstInteractorSelecting is XRSocketInteractor);
         public Transform Holder => m_Grab.isSelected ? m_Grab.firstInteractorSelecting.transform : null;
 
         void Awake() => m_Grab = GetComponent<XRGrabInteractable>();

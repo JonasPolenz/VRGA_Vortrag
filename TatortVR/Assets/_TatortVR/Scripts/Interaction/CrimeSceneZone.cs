@@ -19,7 +19,8 @@ namespace TatortVR
 
         public bool HasBeenEntered => m_Entered;
 
-        void Update()
+        // LateUpdate: after HeadCollision has kept the head out of walls and closed doors.
+        void LateUpdate()
         {
             if (m_Entered)
                 return;
@@ -42,6 +43,8 @@ namespace TatortVR
             var missing = new List<string>();
             if (!progress.IsWorn(TrainingProgress.Equipment.Anzug))
                 missing.Add("Schutzanzug");
+            if (!progress.IsWorn(TrainingProgress.Equipment.Mundschutz))
+                missing.Add("Mundschutz");
             if (!progress.IsWorn(TrainingProgress.Equipment.Handschuhe))
                 missing.Add("Handschuhe");
             if (missing.Count > 0)
