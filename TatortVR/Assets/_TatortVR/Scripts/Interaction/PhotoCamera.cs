@@ -39,6 +39,7 @@ namespace TatortVR
         RenderTexture m_Image;
         readonly List<SceneTrace> m_InView = new List<SceneTrace>();
         readonly List<LatentTrace> m_LatentInView = new List<LatentTrace>();
+        readonly List<Door> m_DoorsInView = new List<Door>();
         int m_PhotoCount;
         float m_LastPhoto = float.NegativeInfinity;
         float m_FlashOffAt = -1f;
@@ -100,7 +101,7 @@ namespace TatortVR
             CollectTracesInView();
             var progress = TrainingProgress.Instance;
             if (progress != null)
-                progress.RegisterPhoto(m_PhotoCount, m_InView, m_LatentInView);
+                progress.RegisterPhoto(m_PhotoCount, m_InView, m_LatentInView, m_DoorsInView);
             UpdateDisplay();
 
             // The shot itself stays on the screen for a moment, lit by the flash.
@@ -137,7 +138,7 @@ namespace TatortVR
             {
                 if (trace is EvidenceItem item && item.IsBagged)
                     continue;
-                if (IsInFrame(trace.Center, trace))
+                if (IsInFrame(trace.Center, trace.transform))
                     m_InView.Add(trace);
             }
 
@@ -147,11 +148,19 @@ namespace TatortVR
                 if (trace.IsVisible && IsInFrame(trace.transform.position, null))
                     m_LatentInView.Add(trace);
             }
+
+            // Doors only matter as long as the state they were found in can still be recorded.
+            m_DoorsInView.Clear();
+            foreach (var door in Door.All)
+            {
+                if (!door.IsSettled && IsInFrame(door.Center, door.transform))
+                    m_DoorsInView.Add(door);
+            }
         }
 
         // Inside the picture and not hidden behind a wall or furniture. Traces lie on surfaces, so the ray
-        // stops just short of them; hitting the trace's own collider does not count as hidden.
-        bool IsInFrame(Vector3 point, SceneTrace owner)
+        // stops just short of them; hitting a collider of the photographed thing itself does not count as hidden.
+        bool IsInFrame(Vector3 point, Transform owner)
         {
             var toPoint = point - m_Lens.position;
             var distance = toPoint.magnitude;
@@ -159,7 +168,7 @@ namespace TatortVR
                 return false;
             if (!Physics.Raycast(m_Lens.position, toPoint / distance, out var hit, distance - 0.04f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
                 return true;
-            return owner != null && hit.collider.GetComponentInParent<SceneTrace>() == owner;
+            return owner != null && hit.collider.transform.IsChildOf(owner);
         }
 
         // What the viewfinder shows is what counts; without a viewfinder a cone around the lens axis is used.

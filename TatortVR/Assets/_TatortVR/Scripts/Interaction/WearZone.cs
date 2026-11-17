@@ -24,6 +24,8 @@ namespace TatortVR
         float m_CandidateSince;
         bool m_PutOnPending;
 
+        public ZoneType Type => m_Type;
+
         void OnTriggerStay(Collider other)
         {
             var item = other.GetComponentInParent<WearableItem>();

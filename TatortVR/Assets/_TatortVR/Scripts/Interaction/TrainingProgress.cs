@@ -64,7 +64,7 @@ namespace TatortVR
         int m_Penalties;
         bool m_SceneChanged;
         bool m_CollectionStarted;
-        bool m_HintedMissingTraces;
+        string m_LastMissingHint;
 
         public static TrainingProgress Instance
         {
@@ -90,6 +90,8 @@ namespace TatortVR
         public int BaggedCount => m_Bagged.Count;
         public int DepositedCount => m_Deposited.Count;
         public int LatentDocumentedCount => m_LatentDocumented.Count;
+        public int DoorTotal => Door.All.Count;
+        public int DoorsDocumented => Door.All.Count(door => door.IsDocumented);
         public bool GlovesUsed => m_GloveContact != null;
         public int MistakeCount { get; private set; }
         public int MaxScore => m_MaxScore;
@@ -176,7 +178,7 @@ namespace TatortVR
         /// Evaluates a photo. Several untouched traces in one picture make an overview photo; a marked trace still
         /// lying where it was found gets its detail photo; hidden traces count while the UV lamp lights them.
         /// </summary>
-        public void RegisterPhoto(int photoNumber, IReadOnlyList<SceneTrace> inView, IReadOnlyList<LatentTrace> latentInView)
+        public void RegisterPhoto(int photoNumber, IReadOnlyList<SceneTrace> inView, IReadOnlyList<LatentTrace> latentInView, IReadOnlyList<Door> doorsInView)
         {
             var inPlace = inView.Where(trace => trace.IsInPlace).ToList();
             var isOverview = !OverviewDone && !m_SceneChanged && inPlace.Count >= m_OverviewTraces;
@@ -186,6 +188,8 @@ namespace TatortVR
             var documentedLatent = latentInView.Where(trace => trace.TryDocument()).ToList();
             foreach (var trace in documentedLatent)
                 m_LatentDocumented.Add(trace);
+            // The state a door was found in is recorded by a photo of it; no marker needed.
+            var documentedDoors = doorsInView.Where(door => door.TryDocument()).ToList();
 
             if (isOverview)
             {
@@ -194,7 +198,8 @@ namespace TatortVR
             }
 
             var names = documented.Select(trace => $"Spur {trace.Marker.Number} ({trace.DisplayName})")
-                .Concat(documentedLatent.Select(trace => trace.DisplayName)).ToList();
+                .Concat(documentedLatent.Select(trace => trace.DisplayName))
+                .Concat(documentedDoors.Select(door => $"{door.DisplayName} ({door.StateName})")).ToList();
             if (names.Count > 0)
             {
                 Record($"Foto {photoNumber}: {string.Join(", ", names)} dokumentiert");
@@ -215,7 +220,7 @@ namespace TatortVR
                     ShowMessage($"Foto {photoNumber}: keine Spur im Bild");
             }
 
-            if (documentedLatent.Count > 0)
+            if (documented.Count > 0 || documentedLatent.Count > 0 || documentedDoors.Count > 0)
                 CheckComplete();
         }
 
@@ -242,17 +247,20 @@ namespace TatortVR
             CheckComplete();
         }
 
-        // Done once every item is in the evidence box and every hidden trace has been photographed.
+        // Done once every item is in the evidence box and everything that stays at the scene is documented:
+        // hidden traces, traces that are not collected (such as the body) and the doors.
         void CheckComplete()
         {
             if (IsComplete || m_EvidenceTotal == 0 || m_Deposited.Count < m_EvidenceTotal)
                 return;
-            if (m_LatentDocumented.Count < m_LatentTotal)
+            var missing = MissingDocumentation();
+            if (missing != null)
             {
-                if (!m_HintedMissingTraces)
+                // Said once per kind of gap, not after every photo.
+                if (m_LastMissingHint != missing)
                 {
-                    m_HintedMissingTraces = true;
-                    ShowMessage("Alle Asservate abgegeben. Es fehlen noch verborgene Spuren (UV-Lampe)");
+                    m_LastMissingHint = missing;
+                    ShowMessage($"Alle Asservate abgegeben. Es fehlt noch: {missing}");
                 }
 
                 return;
@@ -261,6 +269,17 @@ namespace TatortVR
             IsComplete = true;
             CompletionTime = ElapsedTime;
             Record($"Training abgeschlossen in {FormatTime(CompletionTime)}: {Score}/{m_MaxScore} Punkte ({Grade})");
+        }
+
+        string MissingDocumentation()
+        {
+            if (m_LatentDocumented.Count < m_LatentTotal)
+                return "verborgene Spuren (UV-Lampe)";
+            var undocumented = SceneTrace.AllTraces.Where(trace => trace is FixedTrace && !trace.IsDocumented).ToList();
+            if (undocumented.Count > 0)
+                return $"Marker und Foto für {Names(undocumented)}";
+            var doors = Door.All.Where(door => !door.IsSettled).Select(door => door.DisplayName).ToList();
+            return doors.Count > 0 ? $"Foto vom Zustand: {string.Join(", ", doors)}" : null;
         }
 
         public void ReportMistake(string text, int penalty)

@@ -64,6 +64,7 @@ namespace TatortVR
 
             Line(text, $"{Box(Done(p.EquipmentWorn, p.EquipmentTotal))} Schutzausrüstung {p.EquipmentWorn}/{p.EquipmentTotal}");
             Line(text, $"{Box(p.OverviewDone)} Übersichtsfoto");
+            Line(text, $"{Box(Done(p.DoorsDocumented, p.DoorTotal))} Türen {p.DoorsDocumented}/{p.DoorTotal}");
             Line(text, $"{Box(Done(p.MarkedCount, p.TraceTotal))} Marker {p.MarkedCount}/{p.TraceTotal}");
             Line(text, $"{Box(Done(p.PhotographedCount, p.TraceTotal))} Detailfotos {p.PhotographedCount}/{p.TraceTotal}");
             Line(text, $"{Box(p.SampleCount > 0)} Blutprobe");
@@ -80,7 +81,8 @@ namespace TatortVR
             Line(text, "Ablauf");
             Line(text, $"{Box(Done(p.EquipmentWorn, p.EquipmentTotal))} Schutzausrüstung: Anzug, Mundschutz, Handschuhe ({p.EquipmentWorn}/{p.EquipmentTotal})");
             Line(text, $"{Box(p.OverviewDone)} Übersichtsfoto, bevor etwas verändert wird");
-            Line(text, $"{Box(Done(p.MarkedCount, p.TraceTotal))} Spurenmarker neben jede Spur ({p.MarkedCount}/{p.TraceTotal})");
+            Line(text, $"{Box(Done(p.DoorsDocumented, p.DoorTotal))} Jede Tür fotografieren, bevor sie bewegt wird ({p.DoorsDocumented}/{p.DoorTotal})");
+            Line(text, $"{Box(Done(p.MarkedCount, p.TraceTotal))} Spurenmarker neben jede Spur, auch neben den Leichnam ({p.MarkedCount}/{p.TraceTotal})");
             Line(text, $"{Box(Done(p.PhotographedCount, p.TraceTotal))} Detailfoto mit Marker ({p.PhotographedCount}/{p.TraceTotal})");
             Line(text, $"{Box(p.SampleCount > 0)} Blutprobe mit Tupfer nehmen");
             Line(text, $"{Box(Done(p.BaggedCount, p.EvidenceTotal))} Einzeln und richtig verpacken ({p.BaggedCount}/{p.EvidenceTotal})");

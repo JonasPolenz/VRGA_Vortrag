@@ -13,7 +13,8 @@ namespace TatortVR
     {
         [Tooltip("Inactive marker in the scene that is copied for every new number.")]
         [SerializeField] EvidenceMarker m_Template;
-        [SerializeField] int m_MaxMarkers = 9;
+        [Tooltip("A few more than there are traces, in case one is put down in the wrong place.")]
+        [SerializeField] int m_MaxMarkers = 15;
 
         XRSocketInteractor m_Pouch;
         int m_Count;

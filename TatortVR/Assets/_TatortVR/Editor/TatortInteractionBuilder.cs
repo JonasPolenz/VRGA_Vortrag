@@ -100,7 +100,7 @@ namespace TatortVR.EditorTools
             BuildPistol(root.transform, pistolHolster, pistolLayers);
             var blood = CreateMaterial("Blut", new Color(0.33f, 0.02f, 0.02f));
             blood.SetFloat("_Smoothness", 0.85f);
-            var traceCount = BuildEvidence(root.transform, blood);
+            BuildEvidence(root.transform, blood, out var traceCount, out var evidenceCount);
             var latentCount = BuildLatentTraces(root.transform);
             BuildEvidenceBox(root.transform);
             BuildCrimeSceneZone(root.transform);
@@ -122,9 +122,8 @@ namespace TatortVR.EditorTools
 
             var so = new SerializedObject(progress);
             so.FindProperty("m_Messages").objectReferenceValue = messages;
-            // Every trace gets a marker and a photo; every item plus the blood sample ends up in the evidence box.
             so.FindProperty("m_TraceTotal").intValue = traceCount;
-            so.FindProperty("m_EvidenceTotal").intValue = traceCount;
+            so.FindProperty("m_EvidenceTotal").intValue = evidenceCount;
             so.FindProperty("m_LatentTotal").intValue = latentCount;
             SetArray(so.FindProperty("m_HandRenderers"), handRenderers);
             so.ApplyModifiedPropertiesWithoutUndo();
@@ -559,9 +558,10 @@ namespace TatortVR.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        // The traces in the living room: blood on the floor and three objects. Long items lie along their X axis.
-        // Returns how many traces need a marker and a detail photo.
-        static int BuildEvidence(Transform root, Material blood)
+        // The traces: the body, blood and three objects in the living room, and what the offender left in the
+        // kitchen, the bathroom and the bedroom. Long items lie along their X axis. Reports how many traces need a
+        // marker and a detail photo, and how many sealed bags belong into the evidence box.
+        static void BuildEvidence(Transform root, Material blood, out int traceTotal, out int evidenceTotal)
         {
             var group = new GameObject("Spuren").transform;
             group.SetParent(root, false);
@@ -570,7 +570,7 @@ namespace TatortVR.EditorTools
             // Blood pool next to the knocked-over chair, with drops leading towards the door.
             var pool = new GameObject("Blutlache");
             pool.transform.SetParent(group, false);
-            pool.transform.SetPositionAndRotation(new Vector3(2.7f, k_FloorTop + 0.0015f, 5f), Quaternion.Euler(0f, 25f, 0f));
+            pool.transform.SetPositionAndRotation(new Vector3(3f, k_FloorTop + 0.0015f, 5f), Quaternion.Euler(0f, 25f, 0f));
             var radii = new Vector2(0.38f, 0.27f);
             CreateMeshObject("Lache", pool.transform, TatortMeshes.Blob("Blutlache", radii.x, radii.y, 11), blood, Vector3.zero, Quaternion.identity)
                 .GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
@@ -593,7 +593,8 @@ namespace TatortVR.EditorTools
             poolTrace.FindProperty("m_Radii").vector2Value = radii;
             poolTrace.ApplyModifiedPropertiesWithoutUndo();
 
-            var knife = CreateEvidence(group, "Messer", new Vector3(3.35f, k_FloorTop + 0.011f, 5.1f), Quaternion.Euler(0f, 35f, 0f), 0.15f, 0.6f, new Vector3(0f, 0f, 90f),
+            // An arm's length south of the body.
+            var knife = CreateEvidence(group, "Messer", new Vector3(3.6f, k_FloorTop + 0.011f, 4.68f), Quaternion.Euler(0f, 35f, 0f), 0.15f, 0.6f, new Vector3(0f, 0f, 90f),
                 EvidenceItem.PackagingRule.Papier, "Blutanhaftungen: " + paperHint);
             var blade = new[]
             {
@@ -634,7 +635,159 @@ namespace TatortVR.EditorTools
             CreateMeshObject("Glas", glass.transform, TatortMeshes.Lathe("Trinkglas", profile, 20), CreateTransparentMaterial("Trinkglas", new Color(0.85f, 0.95f, 1f, 0.3f), 0.9f), new Vector3(0f, -0.06f, 0f), Quaternion.identity);
             AddBoxCollider(glass, Vector3.zero, new Vector3(0.07f, 0.12f, 0.07f));
 
-            return group.childCount;
+            BuildVictim(group, blood);
+
+            // Kitchen: knife block at the front edge of the worktop with one knife missing. It is only documented.
+            var blockSpot = new Vector3(-5.22f, 1.4f, 3.95f);
+            blockSpot.y = TatortFurnitureKit.SurfaceBelow(blockSpot);
+            var block = new GameObject("Messerblock").transform;
+            block.SetParent(group, false);
+            block.SetPositionAndRotation(blockSpot, Quaternion.Euler(0f, 90f, 0f));
+            var wood = CreateMaterial("Messerblock", new Color(0.5f, 0.36f, 0.22f));
+            CreateBox("Block", block, new Vector3(0f, 0.09f, 0f), new Vector3(0.11f, 0.18f, 0.15f), wood, collider: false, isStatic: false);
+            for (var slot = 0; slot < 5; slot++)
+            {
+                var x = (slot - 2) * 0.02f;
+                // The middle slot is empty: only the dark slit shows.
+                CreateBox("Schlitz", block, new Vector3(x, 0.181f, 0f), new Vector3(0.005f, 0.002f, 0.09f), LoadMaterial("Dunkel"), collider: false, isStatic: false);
+                if (slot != 2)
+                    CreateBox("Messergriff", block, new Vector3(x, 0.22f, 0.02f - slot % 2 * 0.03f), new Vector3(0.014f, 0.08f, 0.024f), LoadMaterial("Dunkel"), collider: false, isStatic: false);
+            }
+
+            AddBoxCollider(block.gameObject, new Vector3(0f, 0.11f, 0f), new Vector3(0.12f, 0.22f, 0.16f));
+            SetFixedTrace(block.gameObject.AddComponent<FixedTrace>(), "Messerblock (ein Messer fehlt)", new Vector3(0.1f, 0.15f, 0.1f));
+
+            // Bathroom: towel the offender wiped the hands on, dropped between toilet and wash basin.
+            var towel = CreateEvidence(group, "Handtuch", new Vector3(-2.75f, k_FloorTop + 0.012f, 8.05f), Quaternion.Euler(0f, 20f, 0f), 0.2f, 0.45f, new Vector3(0f, 0f, 90f),
+                EvidenceItem.PackagingRule.Papier, "Blut am Handtuch: " + paperHint);
+            CreateMeshObject("Stoff", towel.transform, TatortMeshes.Prism("Handtuch", TatortMeshes.RoundedRect(0.42f, 0.26f, 0.03f), 0.02f), CreateMaterial("Handtuch", new Color(0.82f, 0.8f, 0.72f)), Vector3.zero, k_LieFlat);
+            CreateMeshObject("Blutfleck", towel.transform, TatortMeshes.Blob("Handtuch_Blut", 0.09f, 0.06f, 9, 14), blood, new Vector3(0.05f, 0.0105f, 0.02f), Quaternion.identity)
+                .GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+            AddBoxCollider(towel, Vector3.zero, new Vector3(0.42f, 0.022f, 0.26f));
+
+            // Bedroom: emptied wallet on the floor next to the bed.
+            var wallet = CreateEvidence(group, "Geldbörse", new Vector3(2.3f, k_FloorTop + 0.011f, 10.5f), Quaternion.Euler(0f, -35f, 0f), 0.12f, 0.9f, new Vector3(0f, 0f, 90f),
+                EvidenceItem.PackagingRule.Beliebig, "");
+            var leather = CreateMaterial("Geldboerse", new Color(0.24f, 0.14f, 0.09f));
+            foreach (var side in new[] { -1f, 1f })
+                CreateBox("Haelfte", wallet.transform, new Vector3(side * 0.052f, 0f, 0f), new Vector3(0.1f, 0.018f, 0.095f), leather, collider: false, isStatic: false);
+            CreateBox("Falz", wallet.transform, Vector3.zero, new Vector3(0.006f, 0.012f, 0.095f), LoadMaterial("Dunkel"), collider: false, isStatic: false);
+            CreateBox("Fach", wallet.transform, new Vector3(0.052f, 0.0095f, 0f), new Vector3(0.08f, 0.001f, 0.07f), LoadMaterial("Dunkel"), collider: false, isStatic: false);
+            AddBoxCollider(wallet, Vector3.zero, new Vector3(0.21f, 0.02f, 0.1f));
+
+            // Bedroom: pry marks on the frame of the east window, where it was forced. Only documented.
+            var pry = new GameObject("Hebelspuren").transform;
+            pry.SetParent(group, false);
+            pry.position = new Vector3(5.9f, 0.945f, 10.05f);
+            for (var i = 0; i < 3; i++)
+            {
+                var notch = CreateBox("Kerbe", pry, new Vector3(0f, i * 0.02f - 0.02f, i * 0.07f - 0.07f), new Vector3(0.008f, 0.016f, 0.055f), LoadMaterial("Dunkel"), collider: false, isStatic: false);
+                notch.transform.localRotation = Quaternion.Euler(i * 12f - 12f, 0f, 0f);
+            }
+
+            CreateBox("Splitter", pry, new Vector3(-0.006f, -0.05f, 0.01f), new Vector3(0.006f, 0.006f, 0.09f), LoadMaterial("Moebel"), collider: false, isStatic: false);
+            SetFixedTrace(pry.gameObject.AddComponent<FixedTrace>(), "Hebelspuren am Fenster", new Vector3(0.1f, 0.1f, 0.15f));
+
+            // Every trace gets a marker and a photo; the loose items and the blood sample end up in the evidence box.
+            traceTotal = group.GetComponentsInChildren<SceneTrace>().Length;
+            evidenceTotal = group.GetComponentsInChildren<EvidenceItem>().Length + 1;
+        }
+
+        // The victim, lying on the back where the fight ended, head to the east. Built from simple shapes and
+        // deliberately plain. It is solid, must not be touched and is documented like any other trace.
+        static void BuildVictim(Transform group, Material blood)
+        {
+            var victim = new GameObject("Leichnam").transform;
+            victim.SetParent(group, false);
+            // Local +Z points to the head, local +X to the side the blood ran to. The feet stay clear of the arc
+            // the living room door swings through.
+            victim.SetPositionAndRotation(new Vector3(3.2f, k_FloorTop, 5.38f), Quaternion.Euler(0f, 90f, 0f));
+
+            var skin = CreateMaterial("Leichnam_Haut", new Color(0.74f, 0.62f, 0.55f));
+            var shirt = CreateMaterial("Leichnam_Hemd", new Color(0.6f, 0.65f, 0.7f));
+            var trousers = CreateMaterial("Leichnam_Hose", new Color(0.16f, 0.19f, 0.25f));
+            var hair = CreateMaterial("Leichnam_Haar", new Color(0.17f, 0.13f, 0.1f));
+            var shoes = LoadMaterial("Dunkel");
+
+            CreateBox("Becken", victim, new Vector3(0f, 0.09f, -0.16f), new Vector3(0.36f, 0.18f, 0.24f), trousers, collider: false, isStatic: false);
+            CreateBox("Oberkoerper", victim, new Vector3(0f, 0.1f, 0.2f), new Vector3(0.4f, 0.2f, 0.5f), shirt, collider: false, isStatic: false);
+            CreateLimb("Hals", victim, new Vector3(0f, 0.1f, 0.44f), new Vector3(0f, 0.1f, 0.55f), 0.05f, skin);
+            CreateRound("Kopf", victim, new Vector3(0f, 0.11f, 0.64f), new Vector3(0.19f, 0.2f, 0.23f), skin);
+            CreateRound("Haar", victim, new Vector3(0f, 0.105f, 0.69f), new Vector3(0.2f, 0.19f, 0.17f), hair);
+
+            CreateLimb("Bein links", victim, new Vector3(-0.1f, 0.085f, -0.26f), new Vector3(-0.2f, 0.07f, -1.05f), 0.075f, trousers);
+            CreateLimb("Bein rechts", victim, new Vector3(0.1f, 0.085f, -0.26f), new Vector3(0.16f, 0.07f, -1.07f), 0.075f, trousers);
+            CreateBox("Schuh links", victim, new Vector3(-0.215f, 0.12f, -1.1f), new Vector3(0.1f, 0.24f, 0.11f), shoes, collider: false, isStatic: false)
+                .transform.localRotation = Quaternion.Euler(0f, 0f, 20f);
+            CreateBox("Schuh rechts", victim, new Vector3(0.175f, 0.12f, -1.12f), new Vector3(0.1f, 0.24f, 0.11f), shoes, collider: false, isStatic: false)
+                .transform.localRotation = Quaternion.Euler(0f, 0f, -15f);
+
+            // One arm flung out, the other across the wound.
+            CreateLimb("Arm links", victim, new Vector3(-0.22f, 0.1f, 0.4f), new Vector3(-0.62f, 0.05f, 0.62f), 0.045f, shirt);
+            CreateBox("Hand links", victim, new Vector3(-0.68f, 0.03f, 0.66f), new Vector3(0.09f, 0.035f, 0.12f), skin, collider: false, isStatic: false);
+            CreateLimb("Oberarm rechts", victim, new Vector3(0.22f, 0.1f, 0.4f), new Vector3(0.34f, 0.06f, 0.1f), 0.045f, shirt);
+            CreateLimb("Unterarm rechts", victim, new Vector3(0.34f, 0.06f, 0.1f), new Vector3(0.1f, 0.215f, 0.02f), 0.04f, shirt);
+            CreateBox("Hand rechts", victim, new Vector3(0.04f, 0.218f, 0f), new Vector3(0.1f, 0.035f, 0.11f), skin, collider: false, isStatic: false);
+            CreateMeshObject("Blutfleck", victim, TatortMeshes.Blob("Leichnam_Blut", 0.1f, 0.075f, 7, 14), blood, new Vector3(0.09f, 0.2015f, 0.1f), Quaternion.identity)
+                .GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+
+            // Solid, and a little higher than the step the character controller can climb, so nobody walks over it.
+            var solid = new GameObject("Kollision");
+            solid.transform.SetParent(victim, false);
+            AddBoxCollider(solid, new Vector3(0f, 0.12f, 0.25f), new Vector3(0.44f, 0.24f, 0.95f));
+            AddBoxCollider(solid, new Vector3(0f, 0.12f, -0.68f), new Vector3(0.5f, 0.24f, 0.9f));
+
+            // Triggers on the trace itself: the hand zones of the controllers run into them.
+            foreach (var (center, size) in new[]
+                     {
+                         (new Vector3(0f, 0.13f, 0.25f), new Vector3(0.48f, 0.3f, 1f)), (new Vector3(0f, 0.12f, -0.68f), new Vector3(0.5f, 0.28f, 0.9f)),
+                         (new Vector3(-0.45f, 0.06f, 0.52f), new Vector3(0.5f, 0.14f, 0.3f)),
+                     })
+            {
+                var touch = victim.gameObject.AddComponent<BoxCollider>();
+                touch.isTrigger = true;
+                touch.center = center;
+                touch.size = size;
+            }
+
+            var trace = victim.gameObject.AddComponent<FixedTrace>();
+            SetFixedTrace(trace, "Leichnam", new Vector3(0.35f, 0.2f, 1f));
+            var so = new SerializedObject(trace);
+            so.FindProperty("m_DoNotTouch").boolValue = true;
+            so.FindProperty("m_TouchReason").stringValue = "Lage nicht verändern, die Leichenschau ist Sache der Rechtsmedizin";
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        static void SetFixedTrace(FixedTrace trace, string displayName, Vector3 extents)
+        {
+            var so = new SerializedObject(trace);
+            so.FindProperty("m_DisplayName").stringValue = displayName;
+            so.FindProperty("m_Extents").vector3Value = extents;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // Round body part between two points in the parent's space.
+        static void CreateLimb(string name, Transform parent, Vector3 from, Vector3 to, float radius, Material material)
+        {
+            var limb = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            limb.name = name;
+            Object.DestroyImmediate(limb.GetComponent<Collider>());
+            limb.transform.SetParent(parent, false);
+            limb.transform.localPosition = (from + to) / 2f;
+            limb.transform.localRotation = Quaternion.FromToRotation(Vector3.up, to - from);
+            limb.transform.localScale = new Vector3(radius * 2f, Vector3.Distance(from, to) / 2f, radius * 2f);
+            limb.GetComponent<Renderer>().sharedMaterial = material;
+        }
+
+        static void CreateRound(string name, Transform parent, Vector3 localPosition, Vector3 size, Material material)
+        {
+            var ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            ball.name = name;
+            Object.DestroyImmediate(ball.GetComponent<Collider>());
+            ball.transform.SetParent(parent, false);
+            ball.transform.localPosition = localPosition;
+            ball.transform.localScale = size;
+            ball.GetComponent<Renderer>().sharedMaterial = material;
         }
 
         // Traces that only show under the UV lamp: fingerprints on the door frame, shoe prints across the
@@ -667,6 +820,12 @@ namespace TatortVR.EditorTools
             AddTraceQuad(fluid, Vector3.zero, facingUp, new Vector2(0.07f, 0.05f), glow);
             AddTraceQuad(fluid, new Vector3(0.04f, 0f, 0.03f), facingUp * Quaternion.Euler(0f, 0f, 35f), new Vector2(0.05f, 0.035f), glow);
             AddTraceQuad(fluid, new Vector3(-0.035f, 0f, -0.025f), facingUp * Quaternion.Euler(0f, 0f, -20f), new Vector2(0.03f, 0.025f), glow);
+
+            // Bathroom floor in front of the wash basin, where blood was wiped up.
+            var wiped = CreateTrace(group, "Aufgewischtes Blut", new Vector3(-1.95f, k_FloorTop + 0.0015f, 8.2f));
+            AddTraceQuad(wiped, Vector3.zero, facingUp, new Vector2(0.22f, 0.1f), glow);
+            AddTraceQuad(wiped, new Vector3(0.12f, 0f, 0.08f), facingUp * Quaternion.Euler(0f, 0f, 40f), new Vector2(0.14f, 0.07f), glow);
+            AddTraceQuad(wiped, new Vector3(-0.1f, 0f, -0.07f), facingUp * Quaternion.Euler(0f, 0f, -25f), new Vector2(0.1f, 0.06f), glow);
 
             return group.childCount;
         }
@@ -722,19 +881,21 @@ namespace TatortVR.EditorTools
             CreateBox("Staender Einsatz", briefing, new Vector3(position.x, 0.45f, position.z), new Vector3(0.06f, 0.9f, 0.06f), LoadMaterial("Zaun"));
             CreateSign("Titel Einsatz", briefing, position + Vector3.up * 0.66f, readFrom, new Vector2(1.4f, 0.12f), "Einsatzauftrag", 44);
             CreateSign("Einsatz", briefing, position, readFrom, new Vector2(1.4f, 1.16f),
-                "Lage: Notruf um 22:47 Uhr. In der Erdgeschosswohnung Musterweg 7 wurde ein Bewohner mit Stichverletzung aufgefunden " +
-                "und ins Krankenhaus gebracht. Der Tatverdächtige ist flüchtig, der Tatort ist abgesperrt und gesichert.\n\n" +
-                "Auftrag: Spuren im Wohnzimmer dokumentieren und sichern.\n\n" +
+                "Lage: Notruf um 22:47 Uhr. In der Erdgeschosswohnung Musterweg 7 liegt ein Bewohner tot im Wohnzimmer, " +
+                "der Notarzt hat den Tod festgestellt. Der Tatverdächtige ist flüchtig, der Tatort ist abgesperrt.\n\n" +
+                "Auftrag: Spuren in der ganzen Wohnung dokumentieren und sichern. Der Leichnam bleibt liegen, " +
+                "bis die Rechtsmedizin da ist: nur markieren und fotografieren, nicht berühren.\n\n" +
                 "Vorgehen: Auge - Kamera - Hand\n" +
                 "1. Schutzanzug, Mundschutz und Handschuhe anlegen (Tisch links)\n" +
-                "2. Übersichtsfoto machen, bevor irgendetwas verändert wird\n" +
-                "3. Spurenmarker neben jede Spur stellen, dann Detailfoto\n" +
-                "4. Erst wenn alles fotografiert ist: Blutprobe mit Tupfer nehmen,\n    Gegenstände einzeln verpacken\n" +
-                "5. Blut und Speichel in Papier, Handy in den Abschirmbeutel\n" +
-                "6. Versiegelte Beutel in die Asservatenkiste (rechts neben der Haustür)\n" +
-                "7. Mit der UV-Lampe verborgene Spuren suchen und fotografieren\n\n" +
+                "2. Jede Tür so fotografieren, wie sie vorgefunden wird, erst dann bewegen\n" +
+                "3. Übersichtsfoto machen, bevor irgendetwas verändert wird\n" +
+                "4. Spurenmarker neben jede Spur stellen, dann Detailfoto\n" +
+                "5. Erst wenn alles fotografiert ist: Blutprobe mit Tupfer nehmen,\n    Gegenstände einzeln verpacken\n" +
+                "6. Blut und Speichel in Papier, Handy in den Abschirmbeutel\n" +
+                "7. Versiegelte Beutel in die Asservatenkiste (tragbar, steht neben der Haustür)\n" +
+                "8. Mit der UV-Lampe verborgene Spuren suchen und fotografieren\n\n" +
                 "Handschuhe wechseln: zwischen zwei Spuren und nach jeder Türklinke\n(Handschuhbox am Materialtisch neben der Haustür).\n" +
-                "Nicht in Blut oder auf Spuren treten. Die Dienstwaffe bleibt im Holster.", 18, alignment: TextAnchor.UpperLeft);
+                "Nicht in Blut oder auf Spuren treten. Die Dienstwaffe bleibt im Holster.", 17, alignment: TextAnchor.UpperLeft);
         }
 
         // Body anchor on the rig: packaging at the left hip, pistol at the right hip, markers at the front of the
@@ -922,7 +1083,7 @@ namespace TatortVR.EditorTools
             var hud = new GameObject(k_HudName).transform;
             hud.SetParent(head, false);
 
-            var stepsText = CreateHudPanel("Ablauf", hud, new Vector3(-0.38f, 0.02f, 0.9f), new Vector2(0.36f, 0.29f), 10, TextAnchor.UpperLeft);
+            var stepsText = CreateHudPanel("Ablauf", hud, new Vector3(-0.38f, 0.02f, 0.9f), new Vector2(0.36f, 0.32f), 10, TextAnchor.UpperLeft);
             var stepsPanel = stepsText.transform.parent.gameObject;
             var checklist = new SerializedObject(stepsPanel.AddComponent<TrainingChecklist>());
             checklist.FindProperty("m_Progress").objectReferenceValue = progress;
