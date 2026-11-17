@@ -8,9 +8,10 @@ using UnityEngine.XR.Interaction.Toolkit.Interactors;
 namespace TatortVR
 {
     /// <summary>
-    /// Evidence camera. Pulling the trigger while holding it takes a photo of every <see cref="SceneTrace"/>
-    /// and every currently lit <see cref="LatentTrace"/> inside the field of view that is not hidden behind
-    /// something. <see cref="TrainingProgress"/> decides what the photo counts as.
+    /// Evidence camera with a live viewfinder on its back. Pulling the trigger while holding it takes a photo of
+    /// every <see cref="SceneTrace"/> and every currently lit <see cref="LatentTrace"/> that is inside the
+    /// viewfinder image and not hidden behind something. <see cref="TrainingProgress"/> decides what the photo
+    /// counts as.
     /// </summary>
     [RequireComponent(typeof(XRGrabInteractable))]
     public class PhotoCamera : MonoBehaviour
@@ -24,14 +25,31 @@ namespace TatortVR
         [SerializeField] float m_Cooldown = 0.6f;
         [SerializeField] float m_FlashDuration = 0.1f;
 
+        [Header("Viewfinder")]
+        [Tooltip("Disabled camera at the lens; it is rendered by hand at a low rate to spare the headset.")]
+        [SerializeField] Camera m_View;
+        [Tooltip("Screen on the back of the camera that shows the viewfinder image.")]
+        [SerializeField] Renderer m_Screen;
+        [SerializeField] Vector2Int m_Resolution = new Vector2Int(320, 240);
+        [SerializeField] float m_RefreshRate = 15f;
+        [Tooltip("How long the photo that was just taken stays on the screen.")]
+        [SerializeField] float m_ReviewTime = 1.2f;
+
         XRGrabInteractable m_Grab;
+        RenderTexture m_Image;
         readonly List<SceneTrace> m_InView = new List<SceneTrace>();
         readonly List<LatentTrace> m_LatentInView = new List<LatentTrace>();
         int m_PhotoCount;
         float m_LastPhoto = float.NegativeInfinity;
         float m_FlashOffAt = -1f;
+        float m_NextFrameAt;
 
         public int PhotoCount => m_PhotoCount;
+
+        /// <summary>The viewfinder image, or null when the camera has no viewfinder.</summary>
+        public RenderTexture Image => m_Image;
+
+        bool IsHeldByHand => m_Grab.isSelected && !(m_Grab.firstInteractorSelecting is XRSocketInteractor);
 
         void Awake()
         {
@@ -39,9 +57,30 @@ namespace TatortVR
             m_Grab.activated.AddListener(OnActivated);
             SetFlash(false);
             UpdateDisplay();
+
+            if (m_View == null)
+                return;
+            m_Image = new RenderTexture(m_Resolution.x, m_Resolution.y, 16) { name = "Sucherbild", antiAliasing = 1 };
+            m_View.enabled = false;
+            m_View.fieldOfView = m_FieldOfView;
+            m_View.targetTexture = m_Image;
+            if (m_Screen == null)
+                return;
+            // The screen material is dark in the editor; with the image on it the colour must not tint it.
+            var screen = m_Screen.material;
+            screen.mainTexture = m_Image;
+            screen.color = Color.white;
         }
 
-        void OnDestroy() => m_Grab.activated.RemoveListener(OnActivated);
+        void OnDestroy()
+        {
+            m_Grab.activated.RemoveListener(OnActivated);
+            if (m_Image == null)
+                return;
+            m_View.targetTexture = null;
+            m_Image.Release();
+            Destroy(m_Image);
+        }
 
         void OnActivated(ActivateEventArgs args)
         {
@@ -63,6 +102,14 @@ namespace TatortVR
             if (progress != null)
                 progress.RegisterPhoto(m_PhotoCount, m_InView, m_LatentInView);
             UpdateDisplay();
+
+            // The shot itself stays on the screen for a moment, lit by the flash.
+            if (m_View != null)
+            {
+                m_View.Render();
+                m_NextFrameAt = Time.time + m_ReviewTime;
+            }
+
             return true;
         }
 
@@ -72,6 +119,15 @@ namespace TatortVR
                 return;
             m_FlashOffAt = -1f;
             SetFlash(false);
+        }
+
+        // After everything has moved for this frame, so the image matches where the camera is held.
+        void LateUpdate()
+        {
+            if (m_View == null || Time.time < m_NextFrameAt || !IsHeldByHand)
+                return;
+            m_NextFrameAt = Time.time + 1f / m_RefreshRate;
+            m_View.Render();
         }
 
         void CollectTracesInView()
@@ -93,17 +149,26 @@ namespace TatortVR
             }
         }
 
-        // Inside the field of view and not hidden behind a wall or furniture. Traces lie on surfaces, so the
-        // ray stops just short of them; hitting the trace's own collider does not count as hidden.
+        // Inside the picture and not hidden behind a wall or furniture. Traces lie on surfaces, so the ray
+        // stops just short of them; hitting the trace's own collider does not count as hidden.
         bool IsInFrame(Vector3 point, SceneTrace owner)
         {
             var toPoint = point - m_Lens.position;
             var distance = toPoint.magnitude;
-            if (distance > m_Range || Vector3.Angle(m_Lens.forward, toPoint) > m_FieldOfView / 2f)
+            if (distance > m_Range || !IsInPicture(point, toPoint))
                 return false;
             if (!Physics.Raycast(m_Lens.position, toPoint / distance, out var hit, distance - 0.04f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
                 return true;
             return owner != null && hit.collider.GetComponentInParent<SceneTrace>() == owner;
+        }
+
+        // What the viewfinder shows is what counts; without a viewfinder a cone around the lens axis is used.
+        bool IsInPicture(Vector3 point, Vector3 toPoint)
+        {
+            if (m_View == null)
+                return Vector3.Angle(m_Lens.forward, toPoint) <= m_FieldOfView / 2f;
+            var viewport = m_View.WorldToViewportPoint(point);
+            return viewport.z > 0f && viewport.x >= 0f && viewport.x <= 1f && viewport.y >= 0f && viewport.y <= 1f;
         }
 
         void SetFlash(bool on)

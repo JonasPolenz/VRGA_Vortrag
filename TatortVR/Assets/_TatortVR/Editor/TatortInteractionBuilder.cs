@@ -4,6 +4,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.Attachment;
@@ -26,6 +27,9 @@ namespace TatortVR.EditorTools
         const string k_BodyName = "Koerper";
         const string k_HandZoneName = "Handzone";
         const string k_HeadZoneName = "Kopfzone";
+        const string k_HudName = "Sichtfeld";
+        // Unity's built-in "UI" layer; the viewfinder camera leaves it out so the overlay is not in the photos.
+        const int k_UiLayer = 5;
         const int k_DefaultLayers = 1;
         const int k_BagLayerIndex = 1;
         const int k_CameraLayerIndex = 2;
@@ -38,6 +42,7 @@ namespace TatortVR.EditorTools
         static readonly Vector3 k_TablePosition = new Vector3(-1.5f, 0f, -2.1f);
         static readonly Vector3 k_MaterialTablePosition = new Vector3(2.15f, 0f, 1.5f);
         static readonly Vector3 k_EvidenceBoxPosition = new Vector3(1.5f, 0f, 1f);
+        static readonly Vector3 k_BoardPosition = new Vector3(-2.05f, 1.5f, -2.1f);
         static readonly Quaternion k_LieFlat = Quaternion.Euler(90f, 0f, 0f);
 
         [MenuItem("Tools/TatortVR/Interaktion neu bauen")]
@@ -55,7 +60,7 @@ namespace TatortVR.EditorTools
 
             foreach (var old in scene.GetRootGameObjects().Where(g => g.name == RootName))
                 Object.DestroyImmediate(old);
-            var rigParts = new[] { k_BodyName, k_HandZoneName, k_HeadZoneName };
+            var rigParts = new[] { k_BodyName, k_HandZoneName, k_HeadZoneName, k_HudName };
             foreach (var old in origin.GetComponentsInChildren<Transform>(true).Where(t => rigParts.Contains(t.name)).ToArray())
             {
                 if (old != null)
@@ -101,6 +106,8 @@ namespace TatortVR.EditorTools
             BuildCrimeSceneZone(root.transform);
             BuildStepGuard(root.transform, origin, head, blood);
             BuildBriefing(root.transform);
+            var hud = BuildHud(head, progress, out var tutorialPanel, out var tutorialText);
+            BuildTutorial(root.transform, origin, hud, tutorialPanel, tutorialText);
             BuildHandZone(FindChild(origin.transform, "Left Controller"));
             BuildHandZone(FindChild(origin.transform, "Right Controller"));
 
@@ -221,7 +228,7 @@ namespace TatortVR.EditorTools
             SetEquipment(suit.AddComponent<WearableItem>(), TrainingProgress.Equipment.Anzug);
 
             var eye = StartPosition + Vector3.up * 1.5f;
-            var boardPosition = new Vector3(-2.05f, 1.5f, -2.1f);
+            var boardPosition = k_BoardPosition;
             var readFrom = FlatDirection(eye - boardPosition);
             CreateBox("Staender Ablauf", equipment, new Vector3(boardPosition.x, 0.5f, boardPosition.z), new Vector3(0.06f, 1f, 0.06f), LoadMaterial("Zaun"));
             CreateSign("Titel Ablauf", equipment, boardPosition + new Vector3(0f, 0.58f, 0f), readFrom, new Vector2(1.4f, 0.12f), "Spurensicherung: Ablauf", 44);
@@ -350,14 +357,46 @@ namespace TatortVR.EditorTools
             flash.shadows = LightShadows.None;
             flash.enabled = false;
 
-            var display = CreateSign("Display", cameraObject.transform, cameraObject.transform.TransformPoint(new Vector3(0f, 0.005f, -0.031f)),
-                cameraObject.transform.TransformDirection(Vector3.back), new Vector2(0.11f, 0.06f), "Fotos: 0", 14);
+            // Viewfinder: a camera at the lens that PhotoCamera renders at a low rate onto the screen on the back.
+            // It is kept as cheap as possible because the headset renders it on top of both eyes.
+            var view = new GameObject("Sucherkamera").AddComponent<Camera>();
+            view.transform.SetParent(lensPoint, false);
+            view.enabled = false;
+            view.nearClipPlane = 0.05f;
+            view.farClipPlane = 40f;
+            view.cullingMask = ~(1 << k_UiLayer);
+            view.allowMSAA = false;
+            view.allowHDR = false;
+            var viewData = view.GetUniversalAdditionalCameraData();
+            viewData.allowXRRendering = false;
+            viewData.renderPostProcessing = false;
+            viewData.renderShadows = false;
+            viewData.requiresColorOption = CameraOverrideOption.Off;
+            viewData.requiresDepthOption = CameraOverrideOption.Off;
+
+            // Quads face their local -Z, which is the back of the camera.
+            var screen = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            screen.name = "Bildschirm";
+            Object.DestroyImmediate(screen.GetComponent<Collider>());
+            screen.transform.SetParent(cameraObject.transform, false);
+            screen.transform.localPosition = new Vector3(0f, 0.003f, -0.0305f);
+            screen.transform.localScale = new Vector3(0.104f, 0.078f, 1f);
+            var screenRenderer = screen.GetComponent<Renderer>();
+            screenRenderer.sharedMaterial = CreateUnlitMaterial("Kamera_Bildschirm", new Color(0.02f, 0.02f, 0.03f));
+            screenRenderer.shadowCastingMode = ShadowCastingMode.Off;
+
+            // Photo counter in the lower right corner of the screen.
+            var display = CreateSign("Display", cameraObject.transform, cameraObject.transform.TransformPoint(new Vector3(0.028f, -0.03f, -0.0312f)),
+                cameraObject.transform.TransformDirection(Vector3.back), new Vector2(0.046f, 0.012f), "Fotos: 0", 5);
+            display.GetComponentInParent<CanvasScaler>().dynamicPixelsPerUnit = 12f;
 
             var so = new SerializedObject(cameraObject.AddComponent<PhotoCamera>());
             so.FindProperty("m_Lens").objectReferenceValue = lensPoint;
             so.FindProperty("m_Flash").objectReferenceValue = flash;
             so.FindProperty("m_FlashGlow").objectReferenceValue = glow;
             so.FindProperty("m_Display").objectReferenceValue = display;
+            so.FindProperty("m_View").objectReferenceValue = view;
+            so.FindProperty("m_Screen").objectReferenceValue = screenRenderer;
             so.ApplyModifiedPropertiesWithoutUndo();
             SetHolster(cameraObject.AddComponent<HolsterReturn>(), holster);
         }
@@ -828,29 +867,38 @@ namespace TatortVR.EditorTools
             bag.SetActive(false);
         }
 
-        // Open crate in front of the flat for handing in sealed bags, with the evidence list on the wall.
+        // Open crate for handing in sealed bags. It starts in front of the flat and has a carrying handle, so it
+        // can be taken along to where the work is done. The evidence list stays on the house wall.
         static void BuildEvidenceBox(Transform root)
         {
-            var box = new GameObject("Asservatenkiste").transform;
-            box.SetParent(root, false);
-            box.localPosition = k_EvidenceBoxPosition;
+            const float w = 0.6f, d = 0.46f, h = 0.35f, t = 0.02f, handleHeight = 0.13f;
+            var boxObject = CreateGrabbable("Asservatenkiste", root, k_EvidenceBoxPosition, Quaternion.identity, 4f);
+            var box = boxObject.transform;
+            var grab = boxObject.GetComponent<XRGrabInteractable>();
+            // Carried by the handle, hanging below the hand.
+            grab.useDynamicAttach = false;
+            var grip = new GameObject("Griff").transform;
+            grip.SetParent(box, false);
+            grip.localPosition = new Vector3(0f, h + handleHeight, 0f);
+            grab.attachTransform = grip;
+
             var material = CreateMaterial("Asservatenkiste", new Color(0.25f, 0.33f, 0.45f));
-            const float w = 0.6f, d = 0.46f, h = 0.35f, t = 0.02f;
-            CreateBox("Boden", box, new Vector3(0f, t / 2, 0f), new Vector3(w, t, d), material);
-            CreateBox("Wand vorne", box, new Vector3(0f, h / 2, -d / 2 + t / 2), new Vector3(w, h, t), material);
-            CreateBox("Wand hinten", box, new Vector3(0f, h / 2, d / 2 - t / 2), new Vector3(w, h, t), material);
-            CreateBox("Wand links", box, new Vector3(-w / 2 + t / 2, h / 2, 0f), new Vector3(t, h, d - 2 * t), material);
-            CreateBox("Wand rechts", box, new Vector3(w / 2 - t / 2, h / 2, 0f), new Vector3(t, h, d - 2 * t), material);
+            CreateBox("Boden", box, new Vector3(0f, t / 2, 0f), new Vector3(w, t, d), material, isStatic: false);
+            CreateBox("Wand vorne", box, new Vector3(0f, h / 2, -d / 2 + t / 2), new Vector3(w, h, t), material, isStatic: false);
+            CreateBox("Wand hinten", box, new Vector3(0f, h / 2, d / 2 - t / 2), new Vector3(w, h, t), material, isStatic: false);
+            CreateBox("Wand links", box, new Vector3(-w / 2 + t / 2, h / 2, 0f), new Vector3(t, h, d - 2 * t), material, isStatic: false);
+            CreateBox("Wand rechts", box, new Vector3(w / 2 - t / 2, h / 2, 0f), new Vector3(t, h, d - 2 * t), material, isStatic: false);
+            foreach (var side in new[] { -1f, 1f })
+                CreateBox("Buegel", box, new Vector3(side * (w / 2 - t / 2), h + handleHeight / 2, 0f), new Vector3(t, handleHeight, 0.03f), LoadMaterial("Metall"), isStatic: false);
+            CreateBox("Griffstange", box, new Vector3(0f, h + handleHeight, 0f), new Vector3(w, 0.026f, 0.032f), LoadMaterial("Dunkel"), isStatic: false);
 
             var floor = new GameObject("Ablage").transform;
             floor.SetParent(box, false);
             floor.localPosition = new Vector3(0f, t, 0f);
 
-            var signPosition = box.position + new Vector3(0f, h + 0.08f, d / 2);
-            var reader = new Vector3(0f, 1.5f, 0.3f);
-            CreateSign("Schild Asservatenkiste", box, signPosition, FlatDirection(reader - signPosition), new Vector2(0.6f, 0.12f), "Asservatenkiste", 40);
+            CreateSign("Etikett", box, box.TransformPoint(new Vector3(0f, h * 0.55f, -d / 2 - 0.002f)), Vector3.back, new Vector2(0.44f, 0.08f), "Asservatenkiste (tragbar)", 22);
             // On the house wall between the house sign and the window.
-            var list = CreateSign("Asservatenliste", box, new Vector3(2.38f, 1.45f, 1.914f), Vector3.back, new Vector2(0.6f, 0.5f), "Asservatenliste", 20, alignment: TextAnchor.UpperLeft);
+            var list = CreateSign("Asservatenliste", root, new Vector3(2.38f, 1.45f, 1.914f), Vector3.back, new Vector2(0.6f, 0.5f), "Asservatenliste", 20, alignment: TextAnchor.UpperLeft);
 
             // Reaches above the rim so a bag only has to be held over the box.
             var slot = new GameObject("Einwurf", typeof(BoxCollider));
@@ -862,7 +910,97 @@ namespace TatortVR.EditorTools
             var so = new SerializedObject(slot.AddComponent<EvidenceBox>());
             so.FindProperty("m_Floor").objectReferenceValue = floor;
             so.FindProperty("m_List").objectReferenceValue = list;
+            so.FindProperty("m_Grab").objectReferenceValue = grab;
+            so.FindProperty("m_Footprint").vector2Value = new Vector2(w, d);
             so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // Overlay fixed in the field of view: the work steps with the score on the left and the tutorial text at
+        // the top. Both hang on the head and are drawn on top of everything.
+        static TrainingHud BuildHud(Transform head, TrainingProgress progress, out GameObject tutorialPanel, out Text tutorialText)
+        {
+            var hud = new GameObject(k_HudName).transform;
+            hud.SetParent(head, false);
+
+            var stepsText = CreateHudPanel("Ablauf", hud, new Vector3(-0.38f, 0.02f, 0.9f), new Vector2(0.36f, 0.29f), 10, TextAnchor.UpperLeft);
+            var stepsPanel = stepsText.transform.parent.gameObject;
+            var checklist = new SerializedObject(stepsPanel.AddComponent<TrainingChecklist>());
+            checklist.FindProperty("m_Progress").objectReferenceValue = progress;
+            checklist.FindProperty("m_Text").objectReferenceValue = stepsText;
+            checklist.FindProperty("m_Compact").boolValue = true;
+            checklist.ApplyModifiedPropertiesWithoutUndo();
+
+            var hudComponent = hud.gameObject.AddComponent<TrainingHud>();
+            var so = new SerializedObject(hudComponent);
+            so.FindProperty("m_Panel").objectReferenceValue = stepsPanel;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            tutorialText = CreateHudPanel("Einfuehrung", hud, new Vector3(0f, 0.28f, 0.95f), new Vector2(0.66f, 0.16f), 13, TextAnchor.MiddleCenter);
+            tutorialPanel = tutorialText.transform.parent.gameObject;
+            tutorialPanel.SetActive(false);
+            return hudComponent;
+        }
+
+        static Text CreateHudPanel(string name, Transform hud, Vector3 localPosition, Vector2 size, int fontSize, TextAnchor alignment)
+        {
+            var position = hud.TransformPoint(localPosition);
+            // Nearly opaque, so boards and walls behind the overlay do not show through the text.
+            var text = CreateSign(name, hud, position, hud.position - position, size, "", fontSize, new Color(0.06f, 0.07f, 0.1f, 0.88f), alignment: alignment);
+            var canvas = text.transform.parent.gameObject;
+            canvas.GetComponent<Canvas>().sortingOrder = 90;
+            // Small type this close to the eyes needs a sharper font texture than the boards.
+            canvas.GetComponent<CanvasScaler>().dynamicPixelsPerUnit = 5f;
+            var background = canvas.transform.Find("Hintergrund").GetComponent<Image>();
+            var overlay = GetOverlayMaterial();
+            if (overlay != null)
+            {
+                text.material = overlay;
+                background.material = overlay;
+            }
+
+            foreach (var part in canvas.GetComponentsInChildren<Transform>(true))
+                part.gameObject.layer = k_UiLayer;
+            return text;
+        }
+
+        // Runs the onboarding at the start; the button next to the board skips it.
+        static void BuildTutorial(Transform root, XROrigin origin, TrainingHud hud, GameObject panel, Text text)
+        {
+            var eye = StartPosition + Vector3.up * 1.5f;
+            var readFrom = FlatDirection(eye - k_BoardPosition);
+            var sideways = Vector3.Cross(Vector3.up, readFrom).normalized;
+            var buttonPosition = new Vector3(k_BoardPosition.x, 0.82f, k_BoardPosition.z) + readFrom * 0.06f + sideways * 0.45f;
+            var button = CreateBox("Einfuehrung ueberspringen", root, buttonPosition, new Vector3(0.24f, 0.1f, 0.06f),
+                CreateMaterial("Knopf_Tutorial", new Color(0.2f, 0.45f, 0.75f)), isStatic: false);
+            button.transform.rotation = Quaternion.LookRotation(-readFrom);
+            var skip = button.AddComponent<XRSimpleInteractable>();
+            CreateSign("Schild Einfuehrung", root, buttonPosition + new Vector3(0f, 0.1f, 0f) + readFrom * 0.035f, readFrom, new Vector2(0.42f, 0.07f), "Einführung überspringen (Grip)", 20);
+
+            var guide = new GameObject("Einfuehrung").AddComponent<TutorialGuide>();
+            guide.transform.SetParent(root, false);
+            var so = new SerializedObject(guide);
+            so.FindProperty("m_Panel").objectReferenceValue = panel;
+            so.FindProperty("m_Text").objectReferenceValue = text;
+            so.FindProperty("m_Rig").objectReferenceValue = origin.transform;
+            so.FindProperty("m_Camera").objectReferenceValue = root.GetComponentInChildren<PhotoCamera>(true);
+            so.FindProperty("m_Hud").objectReferenceValue = hud;
+            so.FindProperty("m_SkipButton").objectReferenceValue = skip;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        static Material CreateUnlitMaterial(string name, Color color)
+        {
+            var path = $"Assets/_TatortVR/Materials/{name}.mat";
+            var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
+            {
+                material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                AssetDatabase.CreateAsset(material, path);
+            }
+
+            material.SetColor("_BaseColor", color);
+            EditorUtility.SetDirty(material);
+            return material;
         }
 
         // The whole flat counts as the crime scene.

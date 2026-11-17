@@ -112,6 +112,9 @@ namespace TatortVR
             m_StartTime = Time.time;
         }
 
+        /// <summary>Starts the training time over, e.g. once the tutorial is finished.</summary>
+        public void RestartClock() => m_StartTime = Time.time;
+
         /// <summary>Putting on gloves again while wearing some counts as changing them.</summary>
         public void Wear(Equipment item)
         {

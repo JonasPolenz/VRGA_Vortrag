@@ -15,6 +15,8 @@ namespace TatortVR
         [SerializeField] Text m_Text;
         [SerializeField] int m_LogLines = 3;
         [SerializeField] int m_MaxMistakeLines = 12;
+        [Tooltip("Short lines without the log, for the overlay in the field of view.")]
+        [SerializeField] bool m_Compact;
 
         void OnEnable()
         {
@@ -39,11 +41,38 @@ namespace TatortVR
 
             // Plain '\n': AppendLine would add '\r' on Windows, which UI Text draws as a glyph.
             var text = new StringBuilder();
-            if (m_Progress.IsComplete)
+            if (m_Compact)
+                WriteCompact(text, m_Progress);
+            else if (m_Progress.IsComplete)
                 WriteEvaluation(text, m_Progress);
             else
                 WriteChecklist(text, m_Progress);
             m_Text.text = text.ToString().TrimEnd('\n');
+        }
+
+        void WriteCompact(StringBuilder text, TrainingProgress p)
+        {
+            if (p.IsComplete)
+            {
+                Line(text, "Auswertung");
+                Line(text, $"Zeit {TrainingProgress.FormatTime(p.CompletionTime)}");
+                Line(text, $"Punkte {p.Score}/{p.MaxScore}");
+                Line(text, p.Grade);
+                Line(text, $"Fehler {p.MistakeCount}, Details an der Tafel");
+                return;
+            }
+
+            Line(text, $"{Box(Done(p.EquipmentWorn, p.EquipmentTotal))} Schutzausrüstung {p.EquipmentWorn}/{p.EquipmentTotal}");
+            Line(text, $"{Box(p.OverviewDone)} Übersichtsfoto");
+            Line(text, $"{Box(Done(p.MarkedCount, p.TraceTotal))} Marker {p.MarkedCount}/{p.TraceTotal}");
+            Line(text, $"{Box(Done(p.PhotographedCount, p.TraceTotal))} Detailfotos {p.PhotographedCount}/{p.TraceTotal}");
+            Line(text, $"{Box(p.SampleCount > 0)} Blutprobe");
+            Line(text, $"{Box(Done(p.BaggedCount, p.EvidenceTotal))} Verpackt {p.BaggedCount}/{p.EvidenceTotal}");
+            Line(text, $"{Box(Done(p.DepositedCount, p.EvidenceTotal))} In der Kiste {p.DepositedCount}/{p.EvidenceTotal}");
+            Line(text, $"{Box(Done(p.LatentDocumentedCount, p.LatentTotal))} UV-Spuren {p.LatentDocumentedCount}/{p.LatentTotal}");
+            var gloves = !p.IsWorn(TrainingProgress.Equipment.Handschuhe) ? "keine" : p.GlovesUsed ? "wechseln!" : "frisch";
+            Line(text, $"Punkte {p.Score}   Fehler {p.MistakeCount}");
+            Line(text, $"Handschuhe: {gloves}");
         }
 
         void WriteChecklist(StringBuilder text, TrainingProgress p)
@@ -55,7 +84,7 @@ namespace TatortVR
             Line(text, $"{Box(Done(p.PhotographedCount, p.TraceTotal))} Detailfoto mit Marker ({p.PhotographedCount}/{p.TraceTotal})");
             Line(text, $"{Box(p.SampleCount > 0)} Blutprobe mit Tupfer nehmen");
             Line(text, $"{Box(Done(p.BaggedCount, p.EvidenceTotal))} Einzeln und richtig verpacken ({p.BaggedCount}/{p.EvidenceTotal})");
-            Line(text, $"{Box(Done(p.DepositedCount, p.EvidenceTotal))} In die Asservatenkiste legen ({p.DepositedCount}/{p.EvidenceTotal})");
+            Line(text, $"{Box(Done(p.DepositedCount, p.EvidenceTotal))} In die Asservatenkiste legen, sie ist tragbar ({p.DepositedCount}/{p.EvidenceTotal})");
             Line(text, $"{Box(Done(p.LatentDocumentedCount, p.LatentTotal))} UV-Spuren finden und fotografieren ({p.LatentDocumentedCount}/{p.LatentTotal})");
             Line(text, "");
             var gloves = !p.IsWorn(TrainingProgress.Equipment.Handschuhe) ? "keine" : p.GlovesUsed ? "benutzt, wechseln" : "frisch";

@@ -88,7 +88,8 @@ namespace TatortVR.EditorTools
         static void CreateMaterials()
         {
             var grid = CreateGridTexture();
-            CreateMaterial("Boden", Color.white, grid, new Vector2(2 * k_GroundHalfSize, 2 * k_GroundHalfSize));
+            // Lawn; the faint 1 m grid stays so movement is easy to judge in the headset.
+            CreateMaterial("Boden", new Color(0.62f, 0.85f, 0.45f), grid, new Vector2(2 * k_GroundHalfSize, 2 * k_GroundHalfSize));
             s_InnerWall = CreateMaterial("Wand", new Color(0.88f, 0.86f, 0.82f));
             s_OuterWall = CreateMaterial("Wand_Aussen", new Color(0.66f, 0.6f, 0.54f));
             s_Glass = CreateGlassMaterial();
@@ -126,7 +127,8 @@ namespace TatortVR.EditorTools
             MakeTeleportArea(ground);
             MarkStatic(ground);
 
-            CreateFloor("Weg", yard, new Rect(-0.75f, -4f, 1.5f, 6f), s_Path);
+            // Garden path from the gate in the south fence to the front door.
+            CreateFloor("Weg", yard, new Rect(-0.75f, -15f, 1.5f, 17f), s_Path);
 
             // Fence along the edge of the ground so nobody walks off the world.
             var fence = new GameObject("Zaun").transform;
@@ -162,6 +164,127 @@ namespace TatortVR.EditorTools
                 CreateBox("Rad " + (i + 1), car, new Vector3(i < 2 ? -0.85f : 0.85f, 0.32f, i % 2 == 0 ? 1.4f : -1.4f), new Vector3(0.25f, 0.64f, 0.64f), s_Fence);
 
             BuildCordon(yard);
+            BuildScenery(yard);
+        }
+
+        // Trees and bushes in the garden, and beyond the fence a lawn, a street and a few houses, so the flat
+        // does not stand in an empty field. Everything is built from a handful of shared low-poly meshes.
+        static void BuildScenery(Transform yard)
+        {
+            var plants = Group("Bepflanzung", yard);
+            var bark = CreateMaterial("Baum_Rinde", new Color(0.33f, 0.24f, 0.16f));
+            var leaves = CreateMaterial("Baum_Laub", new Color(0.24f, 0.46f, 0.2f));
+            var needles = CreateMaterial("Baum_Nadeln", new Color(0.13f, 0.33f, 0.2f));
+            var bushGreen = CreateMaterial("Busch", new Color(0.2f, 0.4f, 0.17f));
+
+            var trunk = TatortMeshes.Lathe("Baum_Stamm", new[] { new Vector2(0.17f, 0f), new Vector2(0.12f, 1.9f) }, 7);
+            var crown = TatortMeshes.Lathe("Baum_Krone", new[]
+            {
+                new Vector2(0f, 1.4f), new Vector2(0.95f, 1.8f), new Vector2(1.3f, 2.6f), new Vector2(1.05f, 3.5f), new Vector2(0.5f, 4.1f), new Vector2(0f, 4.3f),
+            }, 7);
+            // Three tiers; repeated points give the hard edges between the cones and their undersides.
+            var fir = TatortMeshes.Lathe("Baum_Tanne", new[]
+            {
+                new Vector2(0f, 0.8f), new Vector2(1.1f, 0.8f), new Vector2(1.1f, 0.8f), new Vector2(0.4f, 2.1f), new Vector2(0.4f, 2.1f), new Vector2(0.85f, 2.1f),
+                new Vector2(0.85f, 2.1f), new Vector2(0.28f, 3.2f), new Vector2(0.28f, 3.2f), new Vector2(0.6f, 3.2f), new Vector2(0.6f, 3.2f), new Vector2(0f, 4.4f),
+            }, 8);
+            var bush = TatortMeshes.Lathe("Busch", new[]
+            {
+                new Vector2(0.45f, 0f), new Vector2(0.62f, 0.35f), new Vector2(0.5f, 0.75f), new Vector2(0.22f, 1f), new Vector2(0f, 1.05f),
+            }, 6);
+
+            // x, z, size; kept clear of the start area, the path, the car and the cordon.
+            var leafTrees = new[]
+            {
+                new Vector3(-11.5f, -10.5f, 1.1f), new Vector3(9.5f, -11f, 1f), new Vector3(-12f, 2f, 1.2f), new Vector3(12f, 7f, 1.05f),
+                new Vector3(6f, -7.5f, 0.95f), new Vector3(-7.5f, -12.5f, 1f), new Vector3(-10.5f, 13f, 0.9f),
+            };
+            var firTrees = new[]
+            {
+                new Vector3(11f, -4f, 1f), new Vector3(12.8f, -1.5f, 0.85f), new Vector3(-12.5f, -4.5f, 1.1f), new Vector3(-11.5f, 9f, 1f),
+                new Vector3(12f, 12.5f, 1.15f), new Vector3(9.5f, 13.3f, 0.85f),
+            };
+            var bushes = new[]
+            {
+                new Vector3(-3.5f, 1.45f, 0.9f), new Vector3(-5.1f, 1.5f, 1f), new Vector3(4.9f, 1.5f, 0.95f), new Vector3(-12.5f, -13f, 1.2f),
+                new Vector3(13f, -13f, 1.1f), new Vector3(-13.2f, 12f, 1.1f), new Vector3(13.5f, 1.5f, 1f), new Vector3(-13f, 6f, 0.9f),
+            };
+
+            for (var i = 0; i < leafTrees.Length; i++)
+                PlaceTree("Laubbaum", plants, leafTrees[i], i * 53f, trunk, bark, crown, leaves);
+            for (var i = 0; i < firTrees.Length; i++)
+                PlaceTree("Tanne", plants, firTrees[i], i * 41f, trunk, bark, fir, needles);
+            for (var i = 0; i < bushes.Length; i++)
+            {
+                var plant = CreateMeshObject("Busch", plants, bush, bushGreen, new Vector3(bushes[i].x, 0f, bushes[i].y), Quaternion.Euler(0f, i * 67f, 0f));
+                plant.transform.localScale = Vector3.one * bushes[i].z;
+                var body = plant.AddComponent<CapsuleCollider>();
+                body.radius = 0.45f;
+                body.height = 1f;
+                body.center = new Vector3(0f, 0.5f, 0f);
+                MarkStatic(plant);
+            }
+
+            // Garden gate where the path meets the fence; it stays shut, the fence is the edge of the world.
+            const float e = k_GroundHalfSize;
+            CreateBox("Gartentor", yard, new Vector3(0f, 0.6f, -e + 0.08f), new Vector3(1.5f, 1.1f, 0.05f), s_LightFurniture, collider: false);
+            foreach (var side in new[] { -1f, 1f })
+                CreateBox("Torpfosten", yard, new Vector3(side * 0.85f, 0.75f, -e + 0.08f), new Vector3(0.16f, 1.5f, 0.16f), s_OuterWall, collider: false);
+
+            var outside = Group("Nachbarschaft", yard);
+            CreateBox("Wiese", outside, new Vector3(0f, -0.03f, 0f), new Vector3(140f, 0.04f, 140f), CreateMaterial("Wiese", new Color(0.3f, 0.45f, 0.24f)), collider: false);
+            CreateBox("Gehweg", outside, new Vector3(0f, -0.006f, -16.6f), new Vector3(140f, 0.03f, 1.8f), s_Path, collider: false);
+            CreateBox("Strasse", outside, new Vector3(0f, -0.006f, -21f), new Vector3(140f, 0.03f, 7f), CreateMaterial("Asphalt", new Color(0.2f, 0.2f, 0.21f)), collider: false);
+            for (var x = -60f; x <= 60f; x += 6f)
+                CreateBox("Mittelstreifen", outside, new Vector3(x, 0.01f, -21f), new Vector3(2.4f, 0.004f, 0.14f), s_Frame, collider: false);
+
+            var walls = new[]
+            {
+                CreateMaterial("Nachbar_Hell", new Color(0.86f, 0.82f, 0.72f)), CreateMaterial("Nachbar_Grau", new Color(0.72f, 0.73f, 0.74f)),
+                CreateMaterial("Nachbar_Gelb", new Color(0.85f, 0.76f, 0.5f)),
+            };
+            var roofs = new[] { CreateMaterial("Dach", new Color(0.36f, 0.17f, 0.14f)), CreateMaterial("Dach_Dunkel", new Color(0.2f, 0.21f, 0.23f)) };
+            // Position and footprint (width, depth) of the neighbouring houses.
+            var houses = new[]
+            {
+                (new Vector3(-25f, 0f, 4f), new Vector2(9f, 11f)), (new Vector3(25f, 0f, -1f), new Vector2(10f, 9f)), (new Vector3(-8f, 0f, 27f), new Vector2(11f, 9f)),
+                (new Vector3(12f, 0f, 28f), new Vector2(9f, 10f)), (new Vector3(-14f, 0f, -33f), new Vector2(10f, 9f)), (new Vector3(4f, 0f, -34f), new Vector2(11f, 9f)),
+                (new Vector3(22f, 0f, -33f), new Vector2(9f, 10f)),
+            };
+            for (var i = 0; i < houses.Length; i++)
+                BuildNeighbour(outside, houses[i].Item1, houses[i].Item2, walls[i % walls.Length], roofs[i % roofs.Length]);
+        }
+
+        static void PlaceTree(string name, Transform parent, Vector3 spot, float yaw, Mesh trunk, Material bark, Mesh crown, Material foliage)
+        {
+            var tree = Group(name, parent);
+            tree.SetLocalPositionAndRotation(new Vector3(spot.x, 0f, spot.y), Quaternion.Euler(0f, yaw, 0f));
+            tree.localScale = Vector3.one * spot.z;
+            MarkStatic(CreateMeshObject("Stamm", tree, trunk, bark, Vector3.zero, Quaternion.identity));
+            MarkStatic(CreateMeshObject("Krone", tree, crown, foliage, Vector3.zero, Quaternion.identity));
+            // Only the trunk is solid.
+            var body = tree.gameObject.AddComponent<CapsuleCollider>();
+            body.radius = 0.2f;
+            body.height = 2.2f;
+            body.center = new Vector3(0f, 1.1f, 0f);
+        }
+
+        // Backdrop house outside the fence: walls, a gable roof and dark windows. Nobody gets there, so no colliders.
+        static void BuildNeighbour(Transform parent, Vector3 position, Vector2 footprint, Material wall, Material roof)
+        {
+            const float height = 5.6f;
+            var house = Group("Nachbarhaus", parent);
+            house.localPosition = position;
+            CreateBox("Waende", house, new Vector3(0f, height / 2f, 0f), new Vector3(footprint.x, height, footprint.y), wall, collider: false);
+            var outline = new[] { new Vector2(-footprint.y / 2f - 0.4f, 0f), new Vector2(footprint.y / 2f + 0.4f, 0f), new Vector2(0f, footprint.y * 0.32f) };
+            var roofMesh = TatortMeshes.Prism($"Dach_Nachbar_{footprint.x:0}x{footprint.y:0}", outline, footprint.x + 0.8f);
+            MarkStatic(CreateMeshObject("Dach", house, roofMesh, roof, new Vector3(0f, height, 0f), Quaternion.Euler(0f, 90f, 0f)));
+
+            // Two rows of windows on the long sides, facing north and south.
+            foreach (var side in new[] { -1f, 1f })
+            foreach (var floor in new[] { 1.4f, 4.1f })
+            for (var column = -1; column <= 1; column++)
+                CreateBox("Fenster", house, new Vector3(column * footprint.x * 0.3f, floor, side * (footprint.y / 2f + 0.01f)), new Vector3(1.1f, 1.2f, 0.04f), s_Dark, collider: false);
         }
 
         // Red police tape around the flat with a gap at the path. Posts collide, the tape itself does not.
@@ -221,9 +344,16 @@ namespace TatortVR.EditorTools
             CreateSign("Schild Schlafzimmer", signs, new Vector3(0f, 2.35f, 9 - offset), Vector3.back, new Vector2(1.2f, 0.3f), "Schlafzimmer", 80);
             CreateSign("Hausschild", signs, new Vector3(1.6f, 1.7f, 2 - offset), Vector3.back, new Vector2(0.9f, 0.4f), "Musterweg 7\nWohnung Erdgeschoss", 50);
 
-            // The ceiling keeps the teleport arc from going over the walls. It casts no shadow so the rooms stay lit.
-            var ceiling = CreateBox("Decke", flat, new Vector3(0f, k_WallHeight + 0.05f, 7f), new Vector3(12.15f, 0.1f, 10.15f), s_Ceiling);
-            ceiling.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+            // The ceiling keeps the teleport arc from going over the walls. Daylight only comes in through the
+            // windows; the lamps in the rooms do the rest.
+            CreateBox("Decke", flat, new Vector3(0f, k_WallHeight + 0.05f, 7f), new Vector3(12.15f, 0.1f, 10.15f), s_Ceiling);
+
+            // Gable roof with the ridge running east-west, overhanging the walls a little.
+            var roofOutline = new[] { new Vector2(-5.6f, 0f), new Vector2(5.6f, 0f), new Vector2(0f, 2.1f) };
+            var roof = CreateMeshObject("Dach", flat, TatortMeshes.Prism("Dach", roofOutline, 13f), CreateMaterial("Dach", new Color(0.36f, 0.17f, 0.14f)),
+                new Vector3(0f, k_WallHeight + 0.1f, 7f), Quaternion.Euler(0f, 90f, 0f));
+            MarkStatic(roof);
+            CreateBox("Schornstein", flat, new Vector3(3.2f, k_WallHeight + 1.7f, 8.4f), new Vector3(0.6f, 1.8f, 0.6f), s_OuterWall, collider: false);
 
             BuildDoors(flat);
 
@@ -390,7 +520,8 @@ namespace TatortVR.EditorTools
 
             Kit.Place("rugRound", "Teppich", bedroom, new Vector3(1.4f, k_FloorTop, 10.5f), Vector3.back, 0.16f, false);
             Kit.Place("pottedPlant", "Zimmerpflanze", bedroom, new Vector3(5.5f, k_FloorTop, 11.5f), Vector3.back);
-            CeilingLamp(bedroom, 0f, 10.5f);
+            CeilingLamp(bedroom, -3.3f, 10.5f);
+            CeilingLamp(bedroom, 3.3f, 10.3f);
         }
 
         static void BuildHallway(Transform furniture)
@@ -404,9 +535,21 @@ namespace TatortVR.EditorTools
             CeilingLamp(hall, 0f, 5.5f);
         }
 
-        // Hanging lamp; the kit model is 0.46 m tall at the default scale.
-        static void CeilingLamp(Transform parent, float x, float z) =>
+        // Hanging lamp with a real light; the kit model is 0.46 m tall at the default scale. The lights cast no
+        // shadows, which keeps a handful of them affordable on the headset.
+        static void CeilingLamp(Transform parent, float x, float z)
+        {
             Kit.Place("lampSquareCeiling", "Deckenlampe", parent, new Vector3(x, k_WallHeight - 0.46f, z), Vector3.back, collider: false);
+            var light = new GameObject("Lampenlicht").AddComponent<Light>();
+            light.transform.SetParent(parent, false);
+            // Well below the ceiling, otherwise it burns a bright spot into it.
+            light.transform.position = new Vector3(x, k_WallHeight - 0.9f, z);
+            light.type = LightType.Point;
+            light.color = new Color(1f, 0.93f, 0.8f);
+            light.range = 7f;
+            light.intensity = 2.2f;
+            light.shadows = LightShadows.None;
+        }
 
         static void BuildTeleportAnchors(Transform root)
         {
