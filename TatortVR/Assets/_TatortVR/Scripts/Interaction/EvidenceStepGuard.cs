@@ -19,8 +19,12 @@ namespace TatortVR
         [SerializeField] float m_WarnRadius = 0.5f;
         [Tooltip("Evidence higher than this above the floor (on furniture) cannot be stepped on.")]
         [SerializeField] float m_MaxItemHeight = 0.3f;
-        [Tooltip("Head height relative to the tallest seen so far below which the trainee counts as bending down.")]
+        [Tooltip("Head height relative to the standing height below which the trainee counts as bending down.")]
         [SerializeField, Range(0.5f, 1f)] float m_UprightRatio = 0.8f;
+        [Tooltip("A head height only counts as standing once it has been held this long; lifting the headset over the head while putting it on does not.")]
+        [SerializeField] float m_StandingHoldTime = 3f;
+        [Tooltip("Above this head height the trainee always counts as upright, however tall the standing height was measured.")]
+        [SerializeField] float m_AlwaysUprightHeight = 1.4f;
         [SerializeField] int m_Penalty = 15;
         [Header("Blood")]
         [SerializeField] int m_BloodPenalty = 15;
@@ -38,6 +42,8 @@ namespace TatortVR
 
         readonly Dictionary<Object, State> m_States = new Dictionary<Object, State>();
         float m_StandingHeight = 1.2f;
+        float m_RaisedSince = -1f;
+        float m_RaisedMin;
         int m_FootprintsLeft;
         Vector3 m_LastPrint;
         Transform m_PrintRoot;
@@ -54,8 +60,8 @@ namespace TatortVR
 
             var floorY = m_Floor != null ? m_Floor.position.y : 0f;
             var headHeight = m_Head.position.y - floorY;
-            m_StandingHeight = Mathf.Max(m_StandingHeight, headHeight);
-            var upright = headHeight >= m_StandingHeight * m_UprightRatio;
+            MeasureStandingHeight(headHeight);
+            var upright = headHeight >= Mathf.Min(m_StandingHeight * m_UprightRatio, m_AlwaysUprightHeight);
             var progress = TrainingProgress.Instance;
             if (progress == null)
                 return;
@@ -75,11 +81,37 @@ namespace TatortVR
 
             foreach (var pool in BloodPool.All)
             {
-                Check(pool, pool.DistanceToEdge(m_Head.position) - m_FootReach, upright, progress,
-                    $"Vorsicht: {pool.DisplayName} am Boden!", $"In die {pool.DisplayName} getreten", m_BloodPenalty, true);
+                // The drops around a pool count like the pool itself.
+                var distance = pool.DistanceToEdge(m_Head.position, out var isDrop) - m_FootReach;
+                Check(pool, distance, upright, progress, "Vorsicht: Blut am Boden!",
+                    isDrop ? $"In Blutstropfen bei der {pool.DisplayName} getreten" : $"In die {pool.DisplayName} getreten", m_BloodPenalty, true);
             }
 
             LeaveFootprints(upright);
+        }
+
+        // The standing height is the greatest head height that was held for a while. Taking the plain maximum
+        // would let one moment with the headset held overhead make everyone count as bending down afterwards.
+        void MeasureStandingHeight(float headHeight)
+        {
+            if (headHeight <= m_StandingHeight)
+            {
+                m_RaisedSince = -1f;
+                return;
+            }
+
+            if (m_RaisedSince < 0f)
+            {
+                m_RaisedSince = Time.time;
+                m_RaisedMin = headHeight;
+                return;
+            }
+
+            m_RaisedMin = Mathf.Min(m_RaisedMin, headHeight);
+            if (Time.time - m_RaisedSince < m_StandingHoldTime)
+                return;
+            m_StandingHeight = m_RaisedMin;
+            m_RaisedSince = -1f;
         }
 
         // 'distance' is how far the feet are from touching the trace; zero or less means standing on it.

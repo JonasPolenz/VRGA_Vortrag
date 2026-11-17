@@ -530,9 +530,26 @@ namespace TatortVR.EditorTools
             Kit.Place("sideTableDrawers", "Kommode", hall, new Vector3(0.735f, k_FloorTop, 7.8f), Vector3.left, 0.17f);
             Kit.PlaceOnTop("plantSmall1", "Topfpflanze", hall, 0.74f, 7.5f, Vector3.left);
             // Out of the way of the front door, which swings into the hallway.
-            Kit.Place("coatRackStanding", "Garderobe", hall, new Vector3(0.6f, k_FloorTop, 3.3f), Vector3.back, 0.22f);
+            var rack = Kit.Place("coatRackStanding", "Garderobe", hall, new Vector3(0.6f, k_FloorTop, 3.3f), Vector3.back, 0.22f);
+            // The mesh is a thin pole with hooks. As its own collider it leaves gaps that the head, the body or a
+            // grabbing ray pass through, so the whole silhouette is made solid.
+            AddSolidVolume(rack, 0.26f);
             Kit.PlaceOnTop("rugDoormat", "Fussmatte", hall, 0f, 1.6f, Vector3.back, Kit.Scale, 2f, ("wood", CreateMaterial("Fussmatte", new Color(0.24f, 0.21f, 0.19f))));
             CeilingLamp(hall, 0f, 5.5f);
+        }
+
+        // Upright capsule around a piece of furniture, for models too thin to be a reliable collider themselves.
+        // It is taller than the model by its radius at both ends, so the sides are straight over the full height.
+        static void AddSolidVolume(GameObject furniture, float radius)
+        {
+            var bounds = furniture.GetComponentInChildren<Renderer>().bounds;
+            var solid = new GameObject(furniture.name + " Kollision");
+            solid.transform.SetParent(furniture.transform.parent, false);
+            solid.transform.position = bounds.center;
+            var capsule = solid.AddComponent<CapsuleCollider>();
+            capsule.direction = 1;
+            capsule.radius = radius;
+            capsule.height = bounds.size.y + radius * 2f;
         }
 
         // Hanging lamp with a real light; the kit model is 0.46 m tall at the default scale. The lights cast no

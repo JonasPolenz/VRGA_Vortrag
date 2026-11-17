@@ -34,6 +34,9 @@ namespace TatortVR
         [SerializeField] float m_RefreshRate = 15f;
         [Tooltip("How long the photo that was just taken stays on the screen.")]
         [SerializeField] float m_ReviewTime = 1.2f;
+        [Tooltip("Line above the screen that tells, until the overview photo is taken, how many traces are in the picture.")]
+        [SerializeField] Text m_Hint;
+        [SerializeField] Color m_HintReadyColor = new Color(0.45f, 1f, 0.5f);
 
         XRGrabInteractable m_Grab;
         RenderTexture m_Image;
@@ -44,6 +47,8 @@ namespace TatortVR
         float m_LastPhoto = float.NegativeInfinity;
         float m_FlashOffAt = -1f;
         float m_NextFrameAt;
+        Color m_HintColor;
+        int m_HintCount = -1;
 
         public int PhotoCount => m_PhotoCount;
 
@@ -58,6 +63,11 @@ namespace TatortVR
             m_Grab.activated.AddListener(OnActivated);
             SetFlash(false);
             UpdateDisplay();
+            if (m_Hint != null)
+            {
+                m_HintColor = m_Hint.color;
+                m_Hint.transform.parent.gameObject.SetActive(false);
+            }
 
             if (m_View == null)
                 return;
@@ -103,6 +113,7 @@ namespace TatortVR
             if (progress != null)
                 progress.RegisterPhoto(m_PhotoCount, m_InView, m_LatentInView, m_DoorsInView);
             UpdateDisplay();
+            UpdateHint();
 
             // The shot itself stays on the screen for a moment, lit by the flash.
             if (m_View != null)
@@ -125,10 +136,54 @@ namespace TatortVR
         // After everything has moved for this frame, so the image matches where the camera is held.
         void LateUpdate()
         {
-            if (m_View == null || Time.time < m_NextFrameAt || !IsHeldByHand)
+            if (m_View == null || Time.time < m_NextFrameAt)
                 return;
+            if (!IsHeldByHand)
+            {
+                ShowHint(false);
+                return;
+            }
+
             m_NextFrameAt = Time.time + 1f / m_RefreshRate;
             m_View.Render();
+            UpdateHint();
+        }
+
+        void ShowHint(bool show)
+        {
+            if (m_Hint == null)
+                return;
+            var panel = m_Hint.transform.parent.gameObject;
+            if (panel.activeSelf != show)
+                panel.SetActive(show);
+        }
+
+        // The overview photo is the one step that cannot be seen from the picture alone, so until it is taken
+        // the camera says how many traces it has in the frame. Afterwards the line disappears: the camera is
+        // not meant to find traces for the trainee.
+        void UpdateHint()
+        {
+            if (m_Hint == null)
+                return;
+            var progress = TrainingProgress.Instance;
+            var show = progress != null && progress.HasEnteredScene && !progress.OverviewDone;
+            ShowHint(show);
+            if (!show)
+                return;
+
+            var count = 0;
+            foreach (var trace in SceneTrace.AllTraces)
+            {
+                if (trace.IsInPlace && IsInFrame(trace.Center, trace.transform))
+                    count++;
+            }
+
+            if (count == m_HintCount)
+                return;
+            m_HintCount = count;
+            var needed = progress.OverviewTraces;
+            m_Hint.text = count >= needed ? $"Übersicht: {count} Spuren im Bild, auslösen" : $"Übersicht: {count} von {needed} Spuren im Bild";
+            m_Hint.color = count >= needed ? m_HintReadyColor : m_HintColor;
         }
 
         void CollectTracesInView()

@@ -17,6 +17,10 @@ namespace TatortVR
         [SerializeField] int m_MaxMistakeLines = 12;
         [Tooltip("Short lines without the log, for the overlay in the field of view.")]
         [SerializeField] bool m_Compact;
+        [Tooltip("The overlay shows the latest deduction cut to this many characters.")]
+        [SerializeField] int m_MaxMistakeLength = 62;
+
+        const string k_WarningColor = "#ff8a6a";
 
         void OnEnable()
         {
@@ -63,7 +67,7 @@ namespace TatortVR
             }
 
             Line(text, $"{Box(Done(p.EquipmentWorn, p.EquipmentTotal))} Schutzausrüstung {p.EquipmentWorn}/{p.EquipmentTotal}");
-            Line(text, $"{Box(p.OverviewDone)} Übersichtsfoto");
+            Line(text, $"{Box(p.OverviewDone)} Übersicht: {p.OverviewTraces}+ Spuren in 1 Foto");
             Line(text, $"{Box(Done(p.DoorsDocumented, p.DoorTotal))} Türen {p.DoorsDocumented}/{p.DoorTotal}");
             Line(text, $"{Box(Done(p.MarkedCount, p.TraceTotal))} Marker {p.MarkedCount}/{p.TraceTotal}");
             Line(text, $"{Box(Done(p.PhotographedCount, p.TraceTotal))} Detailfotos {p.PhotographedCount}/{p.TraceTotal}");
@@ -71,16 +75,22 @@ namespace TatortVR
             Line(text, $"{Box(Done(p.BaggedCount, p.EvidenceTotal))} Verpackt {p.BaggedCount}/{p.EvidenceTotal}");
             Line(text, $"{Box(Done(p.DepositedCount, p.EvidenceTotal))} In der Kiste {p.DepositedCount}/{p.EvidenceTotal}");
             Line(text, $"{Box(Done(p.LatentDocumentedCount, p.LatentTotal))} UV-Spuren {p.LatentDocumentedCount}/{p.LatentTotal}");
-            var gloves = !p.IsWorn(TrainingProgress.Equipment.Handschuhe) ? "keine" : p.GlovesUsed ? "wechseln!" : "frisch";
-            Line(text, $"Punkte {p.Score}   Fehler {p.MistakeCount}");
+            var gloves = !p.IsWorn(TrainingProgress.Equipment.Handschuhe) ? "keine"
+                : p.GlovesNeedChange ? Colored(k_WarningColor, "BLUTIG, WECHSELN!") : "sauber";
             Line(text, $"Handschuhe: {gloves}");
+            // The score counts down from the maximum; the deductions are shown next to it.
+            Line(text, p.Penalties == 0
+                ? $"Punkte {p.Score}/{p.MaxScore}, kein Abzug"
+                : $"Punkte {p.Score}/{p.MaxScore}  {Colored(k_WarningColor, $"Abzug -{p.Penalties} ({p.MistakeCount} Fehler)")}");
+            if (p.LastMistake != null)
+                Line(text, Colored(k_WarningColor, Shorten($"Zuletzt {p.LastMistake}", m_MaxMistakeLength)));
         }
 
         void WriteChecklist(StringBuilder text, TrainingProgress p)
         {
             Line(text, "Ablauf");
             Line(text, $"{Box(Done(p.EquipmentWorn, p.EquipmentTotal))} Schutzausrüstung: Anzug, Mundschutz, Handschuhe ({p.EquipmentWorn}/{p.EquipmentTotal})");
-            Line(text, $"{Box(p.OverviewDone)} Übersichtsfoto, bevor etwas verändert wird");
+            Line(text, $"{Box(p.OverviewDone)} Übersichtsfoto vor jeder Veränderung: mind. {p.OverviewTraces} Spuren in einem Bild");
             Line(text, $"{Box(Done(p.DoorsDocumented, p.DoorTotal))} Jede Tür fotografieren, bevor sie bewegt wird ({p.DoorsDocumented}/{p.DoorTotal})");
             Line(text, $"{Box(Done(p.MarkedCount, p.TraceTotal))} Spurenmarker neben jede Spur, auch neben den Leichnam ({p.MarkedCount}/{p.TraceTotal})");
             Line(text, $"{Box(Done(p.PhotographedCount, p.TraceTotal))} Detailfoto mit Marker ({p.PhotographedCount}/{p.TraceTotal})");
@@ -89,8 +99,9 @@ namespace TatortVR
             Line(text, $"{Box(Done(p.DepositedCount, p.EvidenceTotal))} In die Asservatenkiste legen, sie ist tragbar ({p.DepositedCount}/{p.EvidenceTotal})");
             Line(text, $"{Box(Done(p.LatentDocumentedCount, p.LatentTotal))} UV-Spuren finden und fotografieren ({p.LatentDocumentedCount}/{p.LatentTotal})");
             Line(text, "");
-            var gloves = !p.IsWorn(TrainingProgress.Equipment.Handschuhe) ? "keine" : p.GlovesUsed ? "benutzt, wechseln" : "frisch";
-            Line(text, $"Punkte: {p.Score}/{p.MaxScore}   Fehler: {p.MistakeCount}   Handschuhe: {gloves}");
+            var gloves = !p.IsWorn(TrainingProgress.Equipment.Handschuhe) ? "keine" : p.GlovesNeedChange ? "blutig, wechseln" : "sauber";
+            var deductions = p.Penalties == 0 ? "kein Abzug" : $"Abzug: -{p.Penalties} ({p.MistakeCount} Fehler)";
+            Line(text, $"Punkte: {p.Score}/{p.MaxScore}   {deductions}   Handschuhe: {gloves}");
             foreach (var entry in p.Log.Skip(Mathf.Max(0, p.Log.Count - m_LogLines)))
                 Line(text, $"{TrainingProgress.FormatTime(entry.Time)}  {entry.Text}");
         }
@@ -116,6 +127,10 @@ namespace TatortVR
         }
 
         static void Line(StringBuilder text, string line) => text.Append(line).Append('\n');
+
+        static string Colored(string color, string text) => $"<color={color}>{text}</color>";
+
+        static string Shorten(string text, int maxLength) => text.Length <= maxLength ? text : text.Substring(0, maxLength - 1).TrimEnd() + "…";
 
         static bool Done(int count, int total) => total > 0 && count >= total;
 

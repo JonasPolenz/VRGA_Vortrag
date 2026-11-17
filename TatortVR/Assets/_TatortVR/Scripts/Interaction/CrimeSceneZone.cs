@@ -49,8 +49,8 @@ namespace TatortVR
                 missing.Add("Handschuhe");
             if (missing.Count > 0)
                 progress.ReportMistake($"{m_AreaName} ohne {string.Join(" und ", missing)} betreten", m_Penalty);
-            else
-                progress.ShowMessage($"{m_AreaName} betreten");
+            // Also says what comes first inside: the overview photo.
+            progress.NoteSceneEntered(m_AreaName, missing.Count == 0);
         }
 
         void OnDrawGizmosSelected()

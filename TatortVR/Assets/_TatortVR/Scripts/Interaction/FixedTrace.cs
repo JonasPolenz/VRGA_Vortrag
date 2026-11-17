@@ -41,7 +41,8 @@ namespace TatortVR
                 return;
             progress.ReportMistake($"{DisplayName} berührt ({m_TouchReason})", m_TouchPenalty);
             progress.NoteSceneChange();
-            progress.NoteGloveContact(this, DisplayName);
+            if (SoilsGloves)
+                progress.SoilGloves(this, DisplayName);
         }
     }
 }

@@ -102,7 +102,7 @@ namespace TatortVR.EditorTools
             blood.SetFloat("_Smoothness", 0.85f);
             BuildEvidence(root.transform, blood, out var traceCount, out var evidenceCount);
             var latentCount = BuildLatentTraces(root.transform);
-            BuildEvidenceBox(root.transform);
+            BuildEvidenceBox(root.transform, gloves, gloveLayers);
             BuildCrimeSceneZone(root.transform);
             BuildStepGuard(root.transform, origin, head, blood);
             BuildBriefing(root.transform);
@@ -144,18 +144,27 @@ namespace TatortVR.EditorTools
 
             if (origin.TryGetComponent<CharacterController>(out var controller))
             {
-                controller.stepOffset = 0.2f;
+                // The rounded bottom of the capsule lets it ride up edges a good deal higher than the step
+                // offset. With 0.2 it got onto the body (0.24 m) and from there onto table and sofa.
+                controller.stepOffset = 0.1f;
                 PrefabUtility.RecordPrefabInstancePropertyModifications(controller);
             }
         }
 
-        // Notice in front of the trainee; drawn on top of walls so it is never hidden.
+        // Notice in front of the trainee; drawn on top of walls so it is never hidden. The height given here only
+        // sets the margin around the text: at runtime the panel is as tall as the text needs.
         static TrainingMessageDisplay BuildMessageDisplay(Transform root, Transform head)
         {
-            var text = CreateSign("Meldung", root, StartPosition + new Vector3(0f, 1.3f, 1.1f), Vector3.back, new Vector2(0.8f, 0.22f), "", 32,
+            var text = CreateSign("Meldung", root, StartPosition + new Vector3(0f, 1.3f, 1.1f), Vector3.back, new Vector2(0.84f, 0.3f), "", 24,
                 new Color(0.1f, 0.35f, 0.15f, 0.92f));
             var canvas = text.transform.parent.gameObject;
             canvas.GetComponent<Canvas>().sortingOrder = 100;
+            canvas.GetComponent<CanvasScaler>().dynamicPixelsPerUnit = 3f;
+            // Hangs from its top edge and grows downwards, so a long notice does not climb into the overlay.
+            ((RectTransform)canvas.transform).pivot = new Vector2(0.5f, 1f);
+            // On the UI layer, which the viewfinder of the evidence camera leaves out.
+            foreach (var part in canvas.GetComponentsInChildren<Transform>(true))
+                part.gameObject.layer = k_UiLayer;
             var group = canvas.AddComponent<CanvasGroup>();
             group.alpha = 0f;
             group.interactable = false;
@@ -175,6 +184,8 @@ namespace TatortVR.EditorTools
             so.FindProperty("m_Background").objectReferenceValue = background;
             so.FindProperty("m_Group").objectReferenceValue = group;
             so.FindProperty("m_Head").objectReferenceValue = head;
+            // Top edge just below the overlay with the work steps, so a notice does not cover it.
+            so.FindProperty("m_HeightOffset").floatValue = -0.24f;
             so.ApplyModifiedPropertiesWithoutUndo();
             return display;
         }
@@ -389,7 +400,14 @@ namespace TatortVR.EditorTools
                 cameraObject.transform.TransformDirection(Vector3.back), new Vector2(0.046f, 0.012f), "Fotos: 0", 5);
             display.GetComponentInParent<CanvasScaler>().dynamicPixelsPerUnit = 12f;
 
+            // Line above the camera that helps with the overview photo; PhotoCamera shows it only while needed.
+            var hint = CreateSign("Hinweis", cameraObject.transform, cameraObject.transform.TransformPoint(new Vector3(0f, 0.084f, -0.02f)),
+                cameraObject.transform.TransformDirection(Vector3.back), new Vector2(0.19f, 0.022f), "Übersicht: 0 von 2 Spuren im Bild", 5,
+                new Color(0.05f, 0.06f, 0.08f, 0.85f));
+            hint.GetComponentInParent<CanvasScaler>().dynamicPixelsPerUnit = 12f;
+
             var so = new SerializedObject(cameraObject.AddComponent<PhotoCamera>());
+            so.FindProperty("m_Hint").objectReferenceValue = hint;
             so.FindProperty("m_Lens").objectReferenceValue = lensPoint;
             so.FindProperty("m_Flash").objectReferenceValue = flash;
             so.FindProperty("m_FlashGlow").objectReferenceValue = glow;
@@ -591,11 +609,17 @@ namespace TatortVR.EditorTools
             var poolTrace = new SerializedObject(pool.AddComponent<BloodPool>());
             poolTrace.FindProperty("m_DisplayName").stringValue = "Blutlache";
             poolTrace.FindProperty("m_Radii").vector2Value = radii;
+            poolTrace.FindProperty("m_SoilsGloves").boolValue = true;
+            // The drops are blood too: stepping on them or putting something on them counts like the pool.
+            var dropPositions = poolTrace.FindProperty("m_Drops");
+            dropPositions.arraySize = drops.Length;
+            for (var i = 0; i < drops.Length; i++)
+                dropPositions.GetArrayElementAtIndex(i).vector3Value = drops[i];
             poolTrace.ApplyModifiedPropertiesWithoutUndo();
 
             // An arm's length south of the body.
             var knife = CreateEvidence(group, "Messer", new Vector3(3.6f, k_FloorTop + 0.011f, 4.68f), Quaternion.Euler(0f, 35f, 0f), 0.15f, 0.6f, new Vector3(0f, 0f, 90f),
-                EvidenceItem.PackagingRule.Papier, "Blutanhaftungen: " + paperHint);
+                EvidenceItem.PackagingRule.Papier, "Blutanhaftungen: " + paperHint, soilsGloves: true);
             var blade = new[]
             {
                 new Vector2(0f, -0.016f), new Vector2(0.11f, -0.016f), new Vector2(0.16f, -0.01f), new Vector2(0.19f, 0.004f),
@@ -659,7 +683,7 @@ namespace TatortVR.EditorTools
 
             // Bathroom: towel the offender wiped the hands on, dropped between toilet and wash basin.
             var towel = CreateEvidence(group, "Handtuch", new Vector3(-2.75f, k_FloorTop + 0.012f, 8.05f), Quaternion.Euler(0f, 20f, 0f), 0.2f, 0.45f, new Vector3(0f, 0f, 90f),
-                EvidenceItem.PackagingRule.Papier, "Blut am Handtuch: " + paperHint);
+                EvidenceItem.PackagingRule.Papier, "Blut am Handtuch: " + paperHint, soilsGloves: true);
             CreateMeshObject("Stoff", towel.transform, TatortMeshes.Prism("Handtuch", TatortMeshes.RoundedRect(0.42f, 0.26f, 0.03f), 0.02f), CreateMaterial("Handtuch", new Color(0.82f, 0.8f, 0.72f)), Vector3.zero, k_LieFlat);
             CreateMeshObject("Blutfleck", towel.transform, TatortMeshes.Blob("Handtuch_Blut", 0.09f, 0.06f, 9, 14), blood, new Vector3(0.05f, 0.0105f, 0.02f), Quaternion.identity)
                 .GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
@@ -754,6 +778,7 @@ namespace TatortVR.EditorTools
             SetFixedTrace(trace, "Leichnam", new Vector3(0.35f, 0.2f, 1f));
             var so = new SerializedObject(trace);
             so.FindProperty("m_DoNotTouch").boolValue = true;
+            so.FindProperty("m_SoilsGloves").boolValue = true;
             so.FindProperty("m_TouchReason").stringValue = "Lage nicht verändern, die Leichenschau ist Sache der Rechtsmedizin";
             so.ApplyModifiedPropertiesWithoutUndo();
         }
@@ -888,14 +913,16 @@ namespace TatortVR.EditorTools
                 "Vorgehen: Auge - Kamera - Hand\n" +
                 "1. Schutzanzug, Mundschutz und Handschuhe anlegen (Tisch links)\n" +
                 "2. Jede Tür so fotografieren, wie sie vorgefunden wird, erst dann bewegen\n" +
-                "3. Übersichtsfoto machen, bevor irgendetwas verändert wird\n" +
+                "3. Übersichtsfoto, bevor irgendetwas verändert wird: von der Tür aus mindestens\n    2 Spuren in einem Bild (die Kamera zeigt an, wie viele im Bild sind)\n" +
                 "4. Spurenmarker neben jede Spur stellen, dann Detailfoto\n" +
                 "5. Erst wenn alles fotografiert ist: Blutprobe mit Tupfer nehmen,\n    Gegenstände einzeln verpacken\n" +
                 "6. Blut und Speichel in Papier, Handy in den Abschirmbeutel\n" +
                 "7. Versiegelte Beutel in die Asservatenkiste (tragbar, steht neben der Haustür)\n" +
                 "8. Mit der UV-Lampe verborgene Spuren suchen und fotografieren\n\n" +
-                "Handschuhe wechseln: zwischen zwei Spuren und nach jeder Türklinke\n(Handschuhbox am Materialtisch neben der Haustür).\n" +
-                "Nicht in Blut oder auf Spuren treten. Die Dienstwaffe bleibt im Holster.", 17, alignment: TextAnchor.UpperLeft);
+                "Handschuhe wechseln, sobald Blut daran ist (die Hände blinken dann rot), also nach Messer, " +
+                "Handtuch und Blutprobe. Frische Handschuhe stecken hinten an der Asservatenkiste.\n" +
+                "Nicht in Blut oder auf Spuren treten, auch nicht in einzelne Tropfen. Die Dienstwaffe bleibt im Holster.",
+                17, alignment: TextAnchor.UpperLeft);
         }
 
         // Body anchor on the rig: packaging at the left hip, pistol at the right hip, markers at the front of the
@@ -1029,8 +1056,9 @@ namespace TatortVR.EditorTools
         }
 
         // Open crate for handing in sealed bags. It starts in front of the flat and has a carrying handle, so it
-        // can be taken along to where the work is done. The evidence list stays on the house wall.
-        static void BuildEvidenceBox(Transform root)
+        // can be taken along to where the work is done, together with a supply of fresh gloves. The evidence
+        // list stays on the house wall.
+        static void BuildEvidenceBox(Transform root, XRGrabInteractable gloves, int gloveLayers)
         {
             const float w = 0.6f, d = 0.46f, h = 0.35f, t = 0.02f, handleHeight = 0.13f;
             var boxObject = CreateGrabbable("Asservatenkiste", root, k_EvidenceBoxPosition, Quaternion.identity, 4f);
@@ -1058,6 +1086,20 @@ namespace TatortVR.EditorTools
             floor.localPosition = new Vector3(0f, t, 0f);
 
             CreateSign("Etikett", box, box.TransformPoint(new Vector3(0f, h * 0.55f, -d / 2 - 0.002f)), Vector3.back, new Vector2(0.44f, 0.08f), "Asservatenkiste (tragbar)", 22);
+
+            // Fresh gloves travel with the box: a dispenser on the outside of the back wall, the pair standing in
+            // it with the fingers up. The carton has no collider, so the pair in it never pushes the box around.
+            const float cartonDepth = 0.07f, cartonHeight = 0.12f;
+            var cartonCenter = new Vector3(0f, h - 0.01f - cartonHeight / 2, d / 2 + 0.005f + cartonDepth / 2);
+            CreateBox("Handschuhspender", box, cartonCenter, new Vector3(0.3f, cartonHeight, cartonDepth), LoadMaterial("Handschuhbox"), collider: false, isStatic: false);
+            CreateSign("Etikett Handschuhe", box, box.TransformPoint(cartonCenter + new Vector3(0f, 0f, cartonDepth / 2 + 0.001f)), Vector3.forward, new Vector2(0.28f, 0.06f),
+                "Frische Handschuhe", 16);
+            var gloveSocket = CreateHolster("Handschuhausgabe", box, cartonCenter + Vector3.up * (cartonHeight / 2), Quaternion.Euler(-90f, 0f, 0f), 0.1f, gloveLayers);
+            var dispenser = new SerializedObject(gloveSocket.gameObject.AddComponent<ItemDispenser>());
+            dispenser.FindProperty("m_Template").objectReferenceValue = gloves;
+            dispenser.FindProperty("m_ItemName").stringValue = "Handschuhe";
+            dispenser.ApplyModifiedPropertiesWithoutUndo();
+
             // On the house wall between the house sign and the window.
             var list = CreateSign("Asservatenliste", root, new Vector3(2.38f, 1.45f, 1.914f), Vector3.back, new Vector2(0.6f, 0.5f), "Asservatenliste", 20, alignment: TextAnchor.UpperLeft);
 
@@ -1083,7 +1125,8 @@ namespace TatortVR.EditorTools
             var hud = new GameObject(k_HudName).transform;
             hud.SetParent(head, false);
 
-            var stepsText = CreateHudPanel("Ablauf", hud, new Vector3(-0.38f, 0.02f, 0.9f), new Vector2(0.36f, 0.32f), 10, TextAnchor.UpperLeft);
+            // Left of the centre of view, close enough to it to be read without turning the eyes far.
+            var stepsText = CreateHudPanel("Ablauf", hud, new Vector3(-0.3f, 0.01f, 0.9f), new Vector2(0.37f, 0.37f), 10, TextAnchor.UpperLeft);
             var stepsPanel = stepsText.transform.parent.gameObject;
             var checklist = new SerializedObject(stepsPanel.AddComponent<TrainingChecklist>());
             checklist.FindProperty("m_Progress").objectReferenceValue = progress;
@@ -1193,18 +1236,21 @@ namespace TatortVR.EditorTools
             SetZoneType(zone.GetComponent<WearZone>(), WearZone.ZoneType.Hand, controller);
         }
 
+        // 'soilsGloves' marks evidence with blood on it: gloves have to be changed after handling it.
         static GameObject CreateEvidence(Transform parent, string displayName, Vector3 position, Quaternion rotation, float mass, float baggedScale, Vector3 baggedRotation,
-            EvidenceItem.PackagingRule packaging, string packagingHint)
+            EvidenceItem.PackagingRule packaging, string packagingHint, bool soilsGloves = false)
         {
             var go = CreateGrabbable(displayName, parent, position, rotation, mass);
-            SetEvidence(go.AddComponent<EvidenceItem>(), displayName, baggedScale, baggedRotation, packaging, packagingHint);
+            SetEvidence(go.AddComponent<EvidenceItem>(), displayName, baggedScale, baggedRotation, packaging, packagingHint, soilsGloves);
             return go;
         }
 
-        static void SetEvidence(EvidenceItem item, string displayName, float baggedScale, Vector3 baggedRotation, EvidenceItem.PackagingRule packaging, string packagingHint)
+        static void SetEvidence(EvidenceItem item, string displayName, float baggedScale, Vector3 baggedRotation, EvidenceItem.PackagingRule packaging, string packagingHint,
+            bool soilsGloves = false)
         {
             var so = new SerializedObject(item);
             so.FindProperty("m_DisplayName").stringValue = displayName;
+            so.FindProperty("m_SoilsGloves").boolValue = soilsGloves;
             so.FindProperty("m_BaggedScale").floatValue = baggedScale;
             so.FindProperty("m_BaggedRotation").vector3Value = baggedRotation;
             so.FindProperty("m_Packaging").enumValueIndex = (int)packaging;

@@ -9,7 +9,7 @@ namespace TatortVR
     /// Hinged door. Sits on the hinge; pressing grip while pointing at the leaf (near or far) swings it open or
     /// shut. A closed door blocks walking, teleporting and the head. Whether a door was found open or shut is
     /// part of the scene, so it has to be photographed before it is moved. Door handles carry traces, so
-    /// touching one without gloves is a mistake.
+    /// touching one without gloves is a mistake; with gloves it does not force a glove change.
     /// </summary>
     [RequireComponent(typeof(XRSimpleInteractable))]
     public class Door : MonoBehaviour
@@ -111,18 +111,10 @@ namespace TatortVR
                     progress.ReportMistake($"{m_DisplayName} bewegt, bevor ihr Zustand ({StateName}) fotografiert war", m_NotDocumentedPenalty);
             }
 
-            if (progress != null && !progress.IsWorn(TrainingProgress.Equipment.Handschuhe))
+            if (progress != null && !progress.IsWorn(TrainingProgress.Equipment.Handschuhe) && !m_ReportedGloves)
             {
-                if (!m_ReportedGloves)
-                {
-                    m_ReportedGloves = true;
-                    progress.ReportMistake($"{m_DisplayName} ohne Handschuhe angefasst (Türgriff ist Spurenträger)", m_NoGlovesPenalty);
-                }
-            }
-            else if (progress != null)
-            {
-                // The handle may carry DNA of whoever used it last; these gloves must not touch evidence afterwards.
-                progress.NoteGloveContact(this, m_DisplayName);
+                m_ReportedGloves = true;
+                progress.ReportMistake($"{m_DisplayName} ohne Handschuhe angefasst (Türgriff ist Spurenträger)", m_NoGlovesPenalty);
             }
 
             Toggle();

@@ -120,6 +120,7 @@ namespace TatortVR
         public void BecomeSample(SceneTrace source, string displayName)
         {
             m_DisplayName = displayName;
+            m_SoilsGloves = source.SoilsGloves;
             IsSample = true;
             HasBeenMoved = true;
             IsDocumented = source.IsDocumented;

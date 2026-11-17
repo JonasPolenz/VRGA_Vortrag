@@ -10,12 +10,15 @@ namespace TatortVR
     public abstract class SceneTrace : MonoBehaviour
     {
         [SerializeField] protected string m_DisplayName = "Spur";
+        [Tooltip("Carries blood or other body fluids: gloves that touched it have to be changed before the next trace.")]
+        [SerializeField] protected bool m_SoilsGloves;
 
         static readonly List<SceneTrace> s_Traces = new List<SceneTrace>();
 
         public static IReadOnlyList<SceneTrace> AllTraces => s_Traces;
 
         public string DisplayName => m_DisplayName;
+        public bool SoilsGloves => m_SoilsGloves;
         public EvidenceMarker Marker { get; internal set; }
         public bool IsDocumented { get; protected set; }
 

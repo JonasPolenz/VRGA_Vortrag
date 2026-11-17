@@ -35,8 +35,8 @@ namespace TatortVR
         [SerializeField] TrainingMessageDisplay m_Messages;
         [SerializeField] Renderer[] m_HandRenderers;
         [SerializeField] Color m_GloveColor = new Color(0.25f, 0.55f, 1f);
-        [Tooltip("Hand colour once the gloves have touched evidence and need changing.")]
-        [SerializeField] Color m_UsedGloveColor = new Color(0.45f, 0.2f, 0.6f);
+        [Tooltip("Hand colour once the gloves have blood on them and need changing; the hands pulse in it.")]
+        [SerializeField] Color m_SoiledGloveColor = new Color(0.9f, 0.1f, 0.08f);
         [Tooltip("Traces that need a marker and a detail photo.")]
         [SerializeField] int m_TraceTotal;
         [Tooltip("Sealed bags that have to end up in the evidence box.")]
@@ -58,6 +58,8 @@ namespace TatortVR
         readonly List<string> m_Bagged = new List<string>();
         readonly List<string> m_Deposited = new List<string>();
         readonly List<LogEntry> m_Log = new List<LogEntry>();
+        readonly HashSet<SceneTrace> m_TouchedWithSoiledGloves = new HashSet<SceneTrace>();
+        MaterialPropertyBlock m_HandTint;
         UnityEngine.Object m_GloveContact;
         string m_GloveContactName;
         float m_StartTime;
@@ -92,8 +94,16 @@ namespace TatortVR
         public int LatentDocumentedCount => m_LatentDocumented.Count;
         public int DoorTotal => Door.All.Count;
         public int DoorsDocumented => Door.All.Count(door => door.IsDocumented);
-        public bool GlovesUsed => m_GloveContact != null;
+        /// <summary>Traces that have to be in one picture for an overview photo.</summary>
+        public int OverviewTraces => m_OverviewTraces;
+
+        /// <summary>The gloves have blood on them and must not touch the next trace.</summary>
+        public bool GlovesNeedChange => m_GloveContact != null;
         public int MistakeCount { get; private set; }
+
+        /// <summary>Points deducted so far, and what the latest deduction was for.</summary>
+        public int Penalties => m_Penalties;
+        public string LastMistake { get; private set; }
         public int MaxScore => m_MaxScore;
         public int Score => Mathf.Max(0, m_MaxScore - m_Penalties);
         public int ShotsFired { get; private set; }
@@ -124,6 +134,7 @@ namespace TatortVR
             {
                 var changed = !m_Worn.Add(item);
                 m_GloveContact = null;
+                m_TouchedWithSoiledGloves.Clear();
                 TintHands(m_GloveColor);
                 Record(changed ? "Handschuhe gewechselt" : "Handschuhe angezogen");
                 return;
@@ -134,9 +145,9 @@ namespace TatortVR
         }
 
         /// <summary>
-        /// A gloved hand touched evidence. Touching it with gloves that were on another trace or on a door handle
-        /// carries material across, so gloves have to be changed in between. Securing also only starts once
-        /// every trace is marked and photographed.
+        /// A gloved hand touched evidence. Gloves only have to be changed once they have blood on them: touching
+        /// another trace with them carries the blood across. Securing also only starts once every trace is
+        /// marked and photographed.
         /// </summary>
         public void NoteEvidenceContact(SceneTrace trace)
         {
@@ -147,21 +158,36 @@ namespace TatortVR
                     ReportMistake("Mit dem Sichern begonnen, bevor alle Spuren markiert und fotografiert waren", m_EarlyCollectionPenalty);
             }
 
-            NoteGloveContact(trace, trace.DisplayName, true);
+            if (!IsWorn(Equipment.Handschuhe))
+                return;
+            // Counted once per trace, not every time it is picked up again with the same gloves.
+            if (GlovesNeedChange && m_GloveContact != trace && m_TouchedWithSoiledGloves.Add(trace))
+                ReportMistake($"{trace.DisplayName} mit blutigen Handschuhen angefasst (nach {m_GloveContactName} nicht gewechselt)", m_GloveChangePenalty);
+            if (trace.SoilsGloves)
+                SoilGloves(trace, trace.DisplayName);
         }
 
-        /// <summary>A gloved hand touched something that carries traces, e.g. a door handle.</summary>
-        public void NoteGloveContact(UnityEngine.Object source, string sourceName, bool isEvidence = false)
+        /// <summary>A gloved hand touched blood. From now on the gloves have to be changed before the next trace.</summary>
+        public void SoilGloves(UnityEngine.Object source, string sourceName)
         {
             if (!IsWorn(Equipment.Handschuhe) || m_GloveContact == source)
                 return;
-            if (m_GloveContact == null)
-                TintHands(m_UsedGloveColor);
-            else if (isEvidence)
-                ReportMistake($"Handschuhe nach {m_GloveContactName} nicht gewechselt (Kreuzkontamination)", m_GloveChangePenalty);
+            var wereClean = !GlovesNeedChange;
             m_GloveContact = source;
             m_GloveContactName = sourceName;
+            if (wereClean)
+                ShowMessage($"Blut an den Handschuhen ({sourceName}): vor der nächsten Spur wechseln", warning: true);
             Changed?.Invoke();
+        }
+
+        // Soiled gloves pulse, so the need to change them is hard to miss even without looking at the overlay.
+        void Update()
+        {
+            if (!GlovesNeedChange)
+                return;
+            var dark = m_SoiledGloveColor * 0.45f;
+            dark.a = m_SoiledGloveColor.a;
+            TintHands(Color.Lerp(dark, m_SoiledGloveColor, 0.5f + 0.5f * Mathf.Sin(Time.time * 5f)));
         }
 
         /// <summary>Something at the scene was moved, marked or sampled. Overview photos have to come first.</summary>
@@ -175,13 +201,15 @@ namespace TatortVR
         }
 
         /// <summary>
-        /// Evaluates a photo. Several untouched traces in one picture make an overview photo; a marked trace still
-        /// lying where it was found gets its detail photo; hidden traces count while the UV lamp lights them.
+        /// Evaluates a photo. Several traces in one picture, still where they were found, make an overview photo;
+        /// a marked trace still lying where it was found gets its detail photo; hidden traces count while the UV
+        /// lamp lights them. An overview taken after the scene was changed still ticks the step off, the
+        /// deduction for changing the scene first stays.
         /// </summary>
         public void RegisterPhoto(int photoNumber, IReadOnlyList<SceneTrace> inView, IReadOnlyList<LatentTrace> latentInView, IReadOnlyList<Door> doorsInView)
         {
             var inPlace = inView.Where(trace => trace.IsInPlace).ToList();
-            var isOverview = !OverviewDone && !m_SceneChanged && inPlace.Count >= m_OverviewTraces;
+            var isOverview = !OverviewDone && inPlace.Count >= m_OverviewTraces;
             var documented = inView.Where(trace => trace.TryDocument()).ToList();
             foreach (var trace in documented)
                 m_Photographed.Add(trace);
@@ -194,7 +222,9 @@ namespace TatortVR
             if (isOverview)
             {
                 OverviewDone = true;
-                Record($"Foto {photoNumber}: Übersichtsaufnahme des unveränderten Tatorts");
+                Record(m_SceneChanged
+                    ? $"Foto {photoNumber}: Übersichtsaufnahme nachgeholt (der Tatort war schon verändert)"
+                    : $"Foto {photoNumber}: Übersichtsaufnahme des unveränderten Tatorts");
             }
 
             var names = documented.Select(trace => $"Spur {trace.Marker.Number} ({trace.DisplayName})")
@@ -209,13 +239,15 @@ namespace TatortVR
                 var unmarked = inPlace.Where(trace => trace.NeedsOwnDocumentation && trace.Marker == null).ToList();
                 var moved = inView.Where(trace => !trace.IsInPlace).ToList();
                 if (unmarked.Count > 0 && !OverviewDone && !m_SceneChanged)
-                    ShowMessage($"Foto {photoNumber}: Für die Übersichtsaufnahme müssen mindestens {m_OverviewTraces} Spuren im Bild sein");
+                    ShowMessage($"Foto {photoNumber}: nur {inPlace.Count} Spur im Bild. {OverviewHint}");
                 else if (unmarked.Count > 0)
                     ShowMessage($"Foto {photoNumber}: Detailaufnahme zählt erst mit Spurenmarker ({Names(unmarked)})");
                 else if (moved.Count > 0)
                     ShowMessage($"Foto {photoNumber}: {Names(moved)} nicht mehr am Fundort");
                 else if (inView.Count > 0 || latentInView.Count > 0)
                     ShowMessage($"Foto {photoNumber}: schon dokumentiert");
+                else if (!OverviewDone && !m_SceneChanged && HasEnteredScene)
+                    ShowMessage($"Foto {photoNumber}: keine Spur im Bild. {OverviewHint}");
                 else
                     ShowMessage($"Foto {photoNumber}: keine Spur im Bild");
             }
@@ -286,7 +318,22 @@ namespace TatortVR
         {
             MistakeCount++;
             m_Penalties += penalty;
+            LastMistake = $"-{penalty} {text}";
             Record($"Fehler (-{penalty}): {text}", isMistake: true);
+        }
+
+        /// <summary>How an overview photo is taken, for the hints.</summary>
+        public string OverviewHint =>
+            $"Übersichtsfoto: von der Tür aus mindestens {m_OverviewTraces} Spuren zusammen in den Sucher nehmen, Kamera leicht nach unten neigen.";
+
+        /// <summary>Set by the crime scene zone; before that, photos are practice shots and get no overview hint.</summary>
+        public bool HasEnteredScene { get; private set; }
+
+        public void NoteSceneEntered(string areaName, bool fullyEquipped)
+        {
+            HasEnteredScene = true;
+            if (fullyEquipped)
+                ShowMessage($"{areaName} betreten. Zuerst das {OverviewHint}");
         }
 
         public void RegisterShot()
@@ -315,15 +362,16 @@ namespace TatortVR
         // The controller models stand in for the hands, so gloves colour them.
         void TintHands(Color color)
         {
-            var block = new MaterialPropertyBlock();
+            if (m_HandTint == null)
+                m_HandTint = new MaterialPropertyBlock();
             foreach (var handRenderer in m_HandRenderers)
             {
                 if (handRenderer == null)
                     continue;
-                handRenderer.GetPropertyBlock(block);
-                block.SetColor("_BaseColor", color);
-                block.SetColor("_Color", color);
-                handRenderer.SetPropertyBlock(block);
+                handRenderer.GetPropertyBlock(m_HandTint);
+                m_HandTint.SetColor("_BaseColor", color);
+                m_HandTint.SetColor("_Color", color);
+                handRenderer.SetPropertyBlock(m_HandTint);
             }
         }
     }
